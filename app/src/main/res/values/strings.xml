@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">FlowTV</string>
+    <string name="search_hint">Search YouTube…</string>
+    <string name="quality">Quality</string>
+    <string name="subtitles">Subtitles</string>
+    <string name="history">History</string>
+    <string name="auto">Auto</string>
+    <string name="off">Off</string>
+    <string name="on">On</string>
+    <string name="english">English</string>
+    <string name="exit_title">Exit FlowTV?</string>
+    <string name="cancel">Cancel</string>
+    <string name="exit">Exit</string>
+    <string name="view_channel">View Channel</string>
+    <string name="comments_title">Comments</string>
+    <string name="no_comments">No comments available.</string>
+    <string name="no_history">No watch history yet.</string>
+    <string name="no_search_results">No results found.</string>
+    <string name="refresh_hint">Hold Back to Refresh Feed • Double-tap to Exit</string>
+</resources>

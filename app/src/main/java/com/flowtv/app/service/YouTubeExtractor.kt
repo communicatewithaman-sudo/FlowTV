@@ -21,7 +21,6 @@ object YouTubeExtractor {
         .build()
 
     private const val YT_URL  = "https://www.youtube.com/youtubei/v1"
-    // Public InnerTube key — same one used by web/app clients in the open
     private const val YT_KEY  = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
     private const val RYD_URL = "https://returnyoutubedislikeapi.com/votes?videoId="
     private val JSON_MT = "application/json; charset=utf-8".toMediaType()
@@ -82,8 +81,12 @@ object YouTubeExtractor {
             iosHls(videoId)?.let { return@withContext it }
             androidHls(videoId)?.let { return@withContext it }
             tvEmbedHls(videoId)?.let { return@withContext it }
-            for (host in INVIDIOUS) { invidiousUrl(videoId, host)?.let { return@withContext it } }
-            for (host in PIPED)     { pipedUrl(videoId, host)?.let    { return@withContext it } }
+            for (host in INVIDIOUS) {
+                invidiousUrl(videoId, host)?.let { return@withContext it }
+            }
+            for (host in PIPED) {
+                pipedUrl(videoId, host)?.let { return@withContext it }
+            }
             null
         }
 
@@ -92,110 +95,125 @@ object YouTubeExtractor {
     // ========================================
 
     /** iOS client — YouTube almost always returns an unencrypted HLS manifest here. */
-    private fun iosHls(videoId: String): String? = try {
-        val body = """{"context":{"client":{"clientName":"IOS","clientVersion":"19.45.4","deviceModel":"iPhone16,2","userAgent":"com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1 like Mac OS X;)","hl":"en","gl":"US"}},"videoId":"$videoId","params":"2AMB"}"""
-            .toRequestBody(JSON_MT)
-        val req = Request.Builder()
-            .url("$YT_URL/player?key=$YT_KEY&prettyPrint=false")
-            .post(body)
-            .header("User-Agent",               "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1 like Mac OS X;)")
-            .header("X-YouTube-Client-Name",    "5")
-            .header("X-YouTube-Client-Version", "19.45.4")
-            .header("Content-Type",             "application/json")
-            .build()
-        val resp = client.newCall(req).execute()
-        val json = JsonParser.parseString(resp.body?.string() ?: "").asJsonObject
-        // Check playability first
-        val status = json.getAsJsonObject("playabilityStatus")?.getAsString("status")
-        if (status == "ERROR" || status == "LOGIN_REQUIRED") return null
-        json.getAsJsonObject("streamingData")?.getAsString("hlsManifestUrl")?.takeIf { it.isNotEmpty() }
-    } catch (e: Exception) { null }
+    private fun iosHls(videoId: String): String? {
+        return try {
+            val body = """{"context":{"client":{"clientName":"IOS","clientVersion":"19.45.4","deviceModel":"iPhone16,2","userAgent":"com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1 like Mac OS X;)","hl":"en","gl":"US"}},"videoId":"$videoId","params":"2AMB"}"""
+                .toRequestBody(JSON_MT)
+            val req = Request.Builder()
+                .url("$YT_URL/player?key=$YT_KEY&prettyPrint=false")
+                .post(body)
+                .header("User-Agent",               "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1 like Mac OS X;)")
+                .header("X-YouTube-Client-Name",    "5")
+                .header("X-YouTube-Client-Version", "19.45.4")
+                .header("Content-Type",             "application/json")
+                .build()
+            val resp = client.newCall(req).execute()
+            val json = JsonParser.parseString(resp.body?.string() ?: "").asJsonObject
+            val status = json.getAsJsonObject("playabilityStatus")?.getAsString("status")
+            if (status == "ERROR" || status == "LOGIN_REQUIRED") return null
+            json.getAsJsonObject("streamingData")?.getAsString("hlsManifestUrl")?.takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     /** Android client — also often returns an unencrypted HLS or direct URL. */
-    private fun androidHls(videoId: String): String? = try {
-        val body = """{"context":{"client":{"clientName":"ANDROID","clientVersion":"19.44.38","androidSdkVersion":34,"userAgent":"com.google.android.youtube/19.44.38 (Linux; U; Android 14; en_US) gzip","hl":"en","gl":"US"}},"videoId":"$videoId","params":"2AMB"}"""
-            .toRequestBody(JSON_MT)
-        val req = Request.Builder()
-            .url("$YT_URL/player?key=$YT_KEY&prettyPrint=false")
-            .post(body)
-            .header("User-Agent",               "com.google.android.youtube/19.44.38 (Linux; U; Android 14; en_US) gzip")
-            .header("X-YouTube-Client-Name",    "3")
-            .header("X-YouTube-Client-Version", "19.44.38")
-            .header("Content-Type",             "application/json")
-            .build()
-        val json = JsonParser.parseString(client.newCall(req).execute().body?.string() ?: "").asJsonObject
-        val status = json.getAsJsonObject("playabilityStatus")?.getAsString("status")
-        if (status == "ERROR" || status == "LOGIN_REQUIRED") return null
-        val sd = json.getAsJsonObject("streamingData") ?: return null
-        // HLS manifest preferred (no cipher needed)
-        sd.getAsString("hlsManifestUrl")?.takeIf { it.isNotEmpty() }
-            ?: sd.getAsJsonArray("formats")?.firstNotNullOfOrNull { f ->
-                val url = f.asJsonObject.getAsString("url")
-                url?.takeIf { it.isNotEmpty() && !f.asJsonObject.has("signatureCipher") }
-            }
-    } catch (e: Exception) { null }
+    private fun androidHls(videoId: String): String? {
+        return try {
+            val body = """{"context":{"client":{"clientName":"ANDROID","clientVersion":"19.44.38","androidSdkVersion":34,"userAgent":"com.google.android.youtube/19.44.38 (Linux; U; Android 14; en_US) gzip","hl":"en","gl":"US"}},"videoId":"$videoId","params":"2AMB"}"""
+                .toRequestBody(JSON_MT)
+            val req = Request.Builder()
+                .url("$YT_URL/player?key=$YT_KEY&prettyPrint=false")
+                .post(body)
+                .header("User-Agent",               "com.google.android.youtube/19.44.38 (Linux; U; Android 14; en_US) gzip")
+                .header("X-YouTube-Client-Name",    "3")
+                .header("X-YouTube-Client-Version", "19.44.38")
+                .header("Content-Type",             "application/json")
+                .build()
+            val json = JsonParser.parseString(client.newCall(req).execute().body?.string() ?: "").asJsonObject
+            val status = json.getAsJsonObject("playabilityStatus")?.getAsString("status")
+            if (status == "ERROR" || status == "LOGIN_REQUIRED") return null
+            val sd = json.getAsJsonObject("streamingData") ?: return null
+            sd.getAsString("hlsManifestUrl")?.takeIf { it.isNotEmpty() }
+                ?: sd.getAsJsonArray("formats")?.firstNotNullOfOrNull { f ->
+                    val url = f.asJsonObject.getAsString("url")
+                    url?.takeIf { it.isNotEmpty() && !f.asJsonObject.has("signatureCipher") }
+                }
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     /** TV embedded player client — often bypasses cipher for music/public content. */
-    private fun tvEmbedHls(videoId: String): String? = try {
-        val body = """{"context":{"client":{"clientName":"TVHTML5_SIMPLY_EMBEDDED_PLAYER","clientVersion":"2.0","hl":"en","gl":"US"}},"videoId":"$videoId"}"""
-            .toRequestBody(JSON_MT)
-        val req = Request.Builder()
-            .url("$YT_URL/player?key=$YT_KEY&prettyPrint=false")
-            .post(body)
-            .header("User-Agent",    "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/538.1")
-            .header("Content-Type",  "application/json")
-            .build()
-        val json = JsonParser.parseString(client.newCall(req).execute().body?.string() ?: "").asJsonObject
-        val status = json.getAsJsonObject("playabilityStatus")?.getAsString("status")
-        if (status == "ERROR" || status == "LOGIN_REQUIRED") return null
-        val sd = json.getAsJsonObject("streamingData") ?: return null
-        sd.getAsString("hlsManifestUrl")?.takeIf { it.isNotEmpty() }
-            ?: sd.getAsJsonArray("formats")?.firstNotNullOfOrNull { f ->
-                val url = f.asJsonObject.getAsString("url")
-                url?.takeIf { it.isNotEmpty() && !f.asJsonObject.has("signatureCipher") }
-            }
-    } catch (e: Exception) { null }
+    private fun tvEmbedHls(videoId: String): String? {
+        return try {
+            val body = """{"context":{"client":{"clientName":"TVHTML5_SIMPLY_EMBEDDED_PLAYER","clientVersion":"2.0","hl":"en","gl":"US"}},"videoId":"$videoId"}"""
+                .toRequestBody(JSON_MT)
+            val req = Request.Builder()
+                .url("$YT_URL/player?key=$YT_KEY&prettyPrint=false")
+                .post(body)
+                .header("User-Agent",    "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/538.1")
+                .header("Content-Type",  "application/json")
+                .build()
+            val json = JsonParser.parseString(client.newCall(req).execute().body?.string() ?: "").asJsonObject
+            val status = json.getAsJsonObject("playabilityStatus")?.getAsString("status")
+            if (status == "ERROR" || status == "LOGIN_REQUIRED") return null
+            val sd = json.getAsJsonObject("streamingData") ?: return null
+            sd.getAsString("hlsManifestUrl")?.takeIf { it.isNotEmpty() }
+                ?: sd.getAsJsonArray("formats")?.firstNotNullOfOrNull { f ->
+                    val url = f.asJsonObject.getAsString("url")
+                    url?.takeIf { it.isNotEmpty() && !f.asJsonObject.has("signatureCipher") }
+                }
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     /** Query an Invidious instance — it deciphers streams server-side. */
-    private fun invidiousUrl(videoId: String, host: String): String? = try {
-        val req = Request.Builder()
-            .url("$host/api/v1/videos/$videoId?fields=formatStreams,hlsUrl,adaptiveFormats")
-            .header("User-Agent", "Mozilla/5.0 (Linux; Android 11)")
-            .build()
-        val res = client.newCall(req).execute()
-        if (!res.isSuccessful) return null
-        val json = JsonParser.parseString(res.body?.string() ?: "").asJsonObject
-        // Prefer HLS
-        json.getAsString("hlsUrl")?.takeIf { it.isNotEmpty() }
-            // Then a muxed MP4 stream
-            ?: json.getAsJsonArray("formatStreams")?.firstNotNullOfOrNull { s ->
-                s.asJsonObject.getAsString("url")?.takeIf { it.isNotEmpty() }
-            }
-            // Then any adaptive video+audio
-            ?: json.getAsJsonArray("adaptiveFormats")?.firstNotNullOfOrNull { s ->
-                val obj  = s.asJsonObject
-                val type = obj.getAsString("type") ?: ""
-                if (!type.startsWith("video/mp4")) null
-                else obj.getAsString("url")?.takeIf { it.isNotEmpty() }
-            }
-    } catch (e: Exception) { null }
+    private fun invidiousUrl(videoId: String, host: String): String? {
+        return try {
+            val req = Request.Builder()
+                .url("$host/api/v1/videos/$videoId?fields=formatStreams,hlsUrl,adaptiveFormats")
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 11)")
+                .build()
+            val res = client.newCall(req).execute()
+            if (!res.isSuccessful) return null
+            val json = JsonParser.parseString(res.body?.string() ?: "").asJsonObject
+            json.getAsString("hlsUrl")?.takeIf { it.isNotEmpty() }
+                ?: json.getAsJsonArray("formatStreams")?.firstNotNullOfOrNull { s ->
+                    s.asJsonObject.getAsString("url")?.takeIf { it.isNotEmpty() }
+                }
+                ?: json.getAsJsonArray("adaptiveFormats")?.firstNotNullOfOrNull { s ->
+                    val obj  = s.asJsonObject
+                    val type = obj.getAsString("type") ?: ""
+                    if (!type.startsWith("video/mp4")) null
+                    else obj.getAsString("url")?.takeIf { it.isNotEmpty() }
+                }
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     /** Query a Piped instance — also deciphers server-side. */
-    private fun pipedUrl(videoId: String, host: String): String? = try {
-        val req = Request.Builder()
-            .url("$host/streams/$videoId")
-            .header("User-Agent", "Mozilla/5.0")
-            .build()
-        val res = client.newCall(req).execute()
-        if (!res.isSuccessful) return null
-        val json = JsonParser.parseString(res.body?.string() ?: "").asJsonObject
-        json.getAsString("hls")?.takeIf { it.isNotEmpty() }
-            ?: json.getAsJsonArray("videoStreams")?.firstNotNullOfOrNull { vs ->
-                val obj = vs.asJsonObject
-                if (obj.get("videoOnly")?.asBoolean == true) null
-                else obj.getAsString("url")?.takeIf { it.isNotEmpty() }
-            }
-    } catch (e: Exception) { null }
+    private fun pipedUrl(videoId: String, host: String): String? {
+        return try {
+            val req = Request.Builder()
+                .url("$host/streams/$videoId")
+                .header("User-Agent", "Mozilla/5.0")
+                .build()
+            val res = client.newCall(req).execute()
+            if (!res.isSuccessful) return null
+            val json = JsonParser.parseString(res.body?.string() ?: "").asJsonObject
+            json.getAsString("hls")?.takeIf { it.isNotEmpty() }
+                ?: json.getAsJsonArray("videoStreams")?.firstNotNullOfOrNull { vs ->
+                    val obj = vs.asJsonObject
+                    if (obj.get("videoOnly")?.asBoolean == true) null
+                    else obj.getAsString("url")?.takeIf { it.isNotEmpty() }
+                }
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     // ========================================
     // SEARCH

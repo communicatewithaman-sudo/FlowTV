@@ -5,11 +5,12 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      HAS_SIGNING_KEY: ${{ secrets.SIGNING_KEY != '' }}
 
     steps:
       - name: Checkout Code
@@ -24,41 +25,38 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Configure Build Signing
-        if: ${{ env.HAS_SIGNING_KEY == 'true' }}
-        run: |
-          echo "storePassword=${{ secrets.KEY_STORE_PASSWORD }}" > keystore.properties
-          echo "keyAlias=${{ secrets.ALIAS }}" >> keystore.properties
-          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> keystore.properties
-          echo "storeFile=${{ github.workspace }}/key.jks" >> keystore.properties
-          echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > ${{ github.workspace }}/key.jks
-
       - name: Grant Gradle permissions
         run: chmod +x gradlew
 
-      - name: Build TikTube APK
+      - name: Build Single Universal TikTube APK
         run: ./gradlew assembleStbetaRelease --no-daemon --stacktrace
 
-      - name: Upload ARMv7 APK
+      - name: Prepare APK for Release
+        run: |
+          mkdir -p output
+          cp smarttubetv/build/outputs/apk/stbeta/release/*.apk output/TikTube.apk
+          ls -lh output/
+
+      - name: Upload Single Universal APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TikTube-arm32
-          path: ./smarttubetv/build/outputs/apk/stbeta/release/*_armeabi-v7a.apk
+          name: TikTube-Universal
+          path: output/TikTube.apk
           if-no-files-found: error
           retention-days: 30
 
-      - name: Upload ARM64 APK
-        uses: actions/upload-artifact@v4
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
         with:
-          name: TikTube-arm64
-          path: ./smarttubetv/build/outputs/apk/stbeta/release/*_arm64-v8a.apk
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Upload Universal APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: TikTube-universal
-          path: ./smarttubetv/build/outputs/apk/stbeta/release/*_universal.apk
-          if-no-files-found: warn
-          retention-days: 30
+          tag_name: latest
+          name: "TikTube Universal (32-bit & 64-bit)"
+          body: |
+            ### 📺 TikTube - Single Universal Android TV App
+            - **Universal Architecture:** Runs natively on both 32-bit (armeabi-v7a) and 64-bit (arm64-v8a) Android TV boxes.
+            - **Direct Download:** Download `TikTube.apk` below and install directly without unzipping.
+            - **Guaranteed Video Playback:** Uses SmartTube engine for live n-sig deciphering and PoToken attestation.
+            - **TikTube Theme:** Red branding (`#E50914`) with custom TV squircle launcher banner.
+          files: output/TikTube.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

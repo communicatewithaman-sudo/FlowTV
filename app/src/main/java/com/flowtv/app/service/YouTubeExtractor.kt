@@ -14,20 +14,27 @@ import java.util.concurrent.TimeUnit
 object YouTubeExtractor {
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(4, TimeUnit.SECONDS)
+        .callTimeout(6, TimeUnit.SECONDS)
         .build()
 
     private const val INNERTUBE_URL = "https://www.youtube.com/youtubei/v1"
     private const val RYD_URL = "https://returnyoutubedislikeapi.com/votes?videoId="
     private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
-    // Highly reliable public Invidious instances that decipher streams server-side
+    // Highly reliable public Invidious instances
     private val INVIDIOUS_INSTANCES = listOf(
         "https://yewtu.be",
         "https://invidious.nerdvpn.de",
         "https://inv.nadeko.net",
         "https://invidious.drgns.space"
+    )
+
+    // Piped API instances that decipher streams server-side
+    private val PIPED_INSTANCES = listOf(
+        "https://api.piped.private.coffee",
+        "https://pipedapi.kavin.rocks"
     )
 
     /**
@@ -63,8 +70,9 @@ object YouTubeExtractor {
     /**
      * Resolves playable direct stream URL using a multi-tiered failover:
      * Tier 1: Invidious API (pre-deciphered direct MP4 video streams)
-     * Tier 2: InnerTube ANDROID_TESTSUITE (unencrypted direct HLS)
-     * Tier 3: InnerTube IOS / WEB_EMBEDDED
+     * Tier 2: Piped API (pre-deciphered direct HLS / MP4 streams)
+     * Tier 3: InnerTube ANDROID_TESTSUITE (unencrypted direct HLS)
+     * Tier 4: InnerTube TVHTML5_SIMPLY_EMBEDDED_PLAYER
      */
     suspend fun resolveStreamUrl(videoId: String, quality: String = "Auto"): String? =
         withContext(Dispatchers.IO) {
@@ -85,7 +93,6 @@ object YouTubeExtractor {
                         if (json.has("formatStreams")) {
                             val streams = json.getAsJsonArray("formatStreams")
                             if (streams != null && streams.size() > 0) {
-                                // Prefer 720p or 360p muxed stream
                                 for (s in streams) {
                                     val obj = s.asJsonObject
                                     val url = obj.get("url")?.asString
@@ -103,11 +110,48 @@ object YouTubeExtractor {
                         }
                     }
                 } catch (e: Exception) {
-                    // Try next instance
+                    // Try next
                 }
             }
 
-            // Tier 2: InnerTube ANDROID_TESTSUITE Fallback
+            // Tier 2: Query Piped API instances
+            for (instance in PIPED_INSTANCES) {
+                try {
+                    val req = Request.Builder()
+                        .url("$instance/streams/$videoId")
+                        .header("User-Agent", "Mozilla/5.0")
+                        .build()
+
+                    val res = client.newCall(req).execute()
+                    if (res.isSuccessful) {
+                        val body = res.body?.string() ?: ""
+                        val json = JsonParser.parseString(body).asJsonObject
+
+                        if (json.has("hls") && !json.get("hls").isJsonNull) {
+                            val hls = json.get("hls").asString
+                            if (!hls.isNullOrEmpty()) return@withContext hls
+                        }
+
+                        if (json.has("videoStreams")) {
+                            val vStreams = json.getAsJsonArray("videoStreams")
+                            if (vStreams != null && vStreams.size() > 0) {
+                                for (vs in vStreams) {
+                                    val obj = vs.asJsonObject
+                                    val videoOnly = obj.get("videoOnly")?.asBoolean ?: true
+                                    val url = obj.get("url")?.asString
+                                    if (!videoOnly && !url.isNullOrEmpty()) {
+                                        return@withContext url
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Try next
+                }
+            }
+
+            // Tier 3: InnerTube ANDROID_TESTSUITE Fallback
             try {
                 val payload = """
                 {
@@ -146,12 +190,19 @@ object YouTubeExtractor {
                             if (obj.has("url")) return@withContext obj.get("url").asString
                         }
                     }
+                    val adaptive = sd.getAsJsonArray("adaptiveFormats")
+                    if (adaptive != null && adaptive.size() > 0) {
+                        for (f in adaptive) {
+                            val obj = f.asJsonObject
+                            if (obj.has("url")) return@withContext obj.get("url").asString
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
 
-            // Tier 3: InnerTube TVHTML5_SIMPLY_EMBEDDED_PLAYER Fallback
+            // Tier 4: InnerTube TVHTML5_SIMPLY_EMBEDDED_PLAYER Fallback
             try {
                 val payload = """
                 {

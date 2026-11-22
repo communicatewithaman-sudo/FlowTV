@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">FlowTV</string>
+    <string name="app_name">TikTube</string>
     <string name="search_hint">Search YouTube…</string>
     <string name="quality">Quality</string>
     <string name="subtitles">Subtitles</string>
@@ -8,7 +8,7 @@
     <string name="off">Off</string>
     <string name="on">On</string>
     <string name="english">English</string>
-    <string name="exit_title">Exit FlowTV?</string>
+    <string name="exit_title">Exit TikTube?</string>
     <string name="cancel">Cancel</string>
     <string name="exit">Exit</string>
     <string name="view_channel">View Channel</string>

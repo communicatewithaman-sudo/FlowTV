@@ -3,10 +3,12 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Modern Red Squircle Badge -->
     <path
-        android:fillColor="#0A84FF"
-        android:pathData="M14,14h80v80h-80z" />
+        android:fillColor="#E50914"
+        android:pathData="M24,14 h60 c10,0 18,8 18,18 v44 c0,10 -8,18 -18,18 h-60 c-10,0 -18,-8 -18,-18 v-44 c0,-10 8,-18 18,-18 z" />
+    <!-- Crisp White Centered Play Symbol -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M42,34l32,20l-32,20z" />
+        android:pathData="M44,36 l28,18 l-28,18 z" />
 </vector>

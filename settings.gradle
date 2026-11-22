@@ -1,2 +1,2 @@
-rootProject.name = "FlowTV"
+rootProject.name = "TikTube"
 include ':app'

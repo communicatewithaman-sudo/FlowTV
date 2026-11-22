@@ -39,7 +39,7 @@ class MainActivity : AppCompatActivity() {
     private val currentHistoryFeed = mutableListOf<VideoItem>()
 
     // Navigation state
-    private var isSearchPlaybackMode = false // When true, pressing Back returns to Search shelf!
+    private var isSearchPlaybackMode = false // When true, pressing Back returns to Search shelf
     private var isCleanScreenMode = false    // When true, HUD is hidden unless paused
     private var isOkPressed = false
     private var okLongPressJob: Job? = null
@@ -114,9 +114,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupUI() {
         // Shelf RecyclerView (Search & History)
-        shelfAdapter = ShelfAdapter(emptyList()) { selectedVideo, position ->
+        shelfAdapter = ShelfAdapter(emptyList()) { selectedVideo, _ ->
             val isHistory = binding.tvShelfTitle.text.toString().contains("History")
-            closeAllOverlays()
+            closeMenu()
+            binding.shelfOverlay.visibility = View.GONE
 
             if (!isHistory) {
                 // User started playback from Search: mark search playback mode
@@ -177,6 +178,33 @@ class MainActivity : AppCompatActivity() {
         binding.btnExitConfirm.setOnClickListener {
             finish()
         }
+    }
+
+    // ==========================================
+    // STATUS PILL ANIMATIONS (Show/Hide)
+    // ==========================================
+
+    private fun showStatus(message: String) {
+        binding.tvStatusMessage.text = message
+        binding.centerStatusPill.visibility = View.VISIBLE
+        binding.centerStatusPill.alpha = 0f
+        binding.centerStatusPill.animate()
+            .alpha(1f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(220)
+            .start()
+    }
+
+    private fun hideStatus() {
+        binding.centerStatusPill.animate()
+            .alpha(0f)
+            .scaleX(0.9f)
+            .scaleY(0.9f)
+            .setDuration(200)
+            .withEndAction {
+                binding.centerStatusPill.visibility = View.GONE
+            }.start()
     }
 
     // ==========================================
@@ -376,6 +404,17 @@ class MainActivity : AppCompatActivity() {
                 .scaleY(1.0f)
                 .setDuration(240)
                 .start()
+
+            // Return focus to whichever view was underneath
+            if (binding.shelfOverlay.isVisible) {
+                if (binding.searchHeader.isVisible) {
+                    binding.etSearchInput.requestFocus()
+                } else {
+                    binding.rvShelf.requestFocus()
+                }
+            } else {
+                binding.playerView.requestFocus()
+            }
             return true
         }
         return false
@@ -413,19 +452,6 @@ class MainActivity : AppCompatActivity() {
         currentHistoryFeed.addAll(history)
         shelfAdapter.updateList(currentHistoryFeed)
         binding.rvShelf.requestFocus()
-    }
-
-    private fun closeAllOverlays(): Boolean {
-        var closed = closeMenu()
-        if (binding.shelfOverlay.isVisible) {
-            binding.shelfOverlay.visibility = View.GONE
-            closed = true
-        }
-        if (binding.exitDialog.isVisible) {
-            binding.exitDialog.visibility = View.GONE
-            closed = true
-        }
-        return closed
     }
 
     private fun isHomeScreen(): Boolean {
@@ -481,7 +507,7 @@ class MainActivity : AppCompatActivity() {
             return true
         }
 
-        // 2. Menu button -> Opens Right-Side Centered Frosted Menu (Slides mainContentWrapper to left)
+        // 2. Menu button -> Opens Right-Side Centered Frosted Menu (Slides whichever view is active to left)
         if (keyCode == KeyEvent.KEYCODE_MENU && event.action == KeyEvent.ACTION_DOWN) {
             if (binding.menuDrawer.isVisible) {
                 closeMenu()
@@ -515,7 +541,23 @@ class MainActivity : AppCompatActivity() {
 
         // 4. Back Key Handling
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            // Priority 1: If currently playing a video that was opened from Search -> Pressing Back MUST return to Search!
+            // Priority 1: If Menu is open -> Close Menu (remains on Search, History, or whatever was open!)
+            if (binding.menuDrawer.isVisible) {
+                if (event.action == KeyEvent.ACTION_UP) {
+                    closeMenu()
+                }
+                return true
+            }
+
+            // Priority 2: If Exit Dialog is open -> Close Exit Dialog
+            if (binding.exitDialog.isVisible) {
+                if (event.action == KeyEvent.ACTION_UP) {
+                    binding.exitDialog.visibility = View.GONE
+                }
+                return true
+            }
+
+            // Priority 3: If playing a video that was opened from Search -> Return back to Search Shelf!
             if (isSearchPlaybackMode) {
                 if (event.action == KeyEvent.ACTION_UP) {
                     isSearchPlaybackMode = false
@@ -525,28 +567,12 @@ class MainActivity : AppCompatActivity() {
                 return true
             }
 
-            // Priority 2: If Menu is open -> Close Menu
-            if (binding.menuDrawer.isVisible) {
-                if (event.action == KeyEvent.ACTION_UP) {
-                    closeMenu()
-                }
-                return true
-            }
-
-            // Priority 3: If Search or History shelf is open -> Pressing Back returns to Home Screen!
+            // Priority 4: If Search or History shelf is open -> Return to Home Screen!
             if (binding.shelfOverlay.isVisible) {
                 if (event.action == KeyEvent.ACTION_UP) {
                     binding.shelfOverlay.visibility = View.GONE
                     // Resume home video playback
                     player?.play()
-                }
-                return true
-            }
-
-            // Priority 4: If Exit Dialog is open -> Close Exit Dialog
-            if (binding.exitDialog.isVisible) {
-                if (event.action == KeyEvent.ACTION_UP) {
-                    binding.exitDialog.visibility = View.GONE
                 }
                 return true
             }

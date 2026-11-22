@@ -1,4 +1,4 @@
-name: Build FlowTV APK
+name: Build TikTube APK
 
 on:
   push:
@@ -35,6 +35,6 @@ jobs:
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FlowTV-Universal-v1.0.0
+          name: TikTube-Universal-v1.0.0
           path: app/build/outputs/apk/release/*.apk
           retention-days: 30

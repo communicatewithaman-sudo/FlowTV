@@ -10,7 +10,7 @@ class HistoryDatabaseHelper(context: Context) :
     SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
     companion object {
-        private const val DATABASE_NAME = "flowtv_history.db"
+        private const val DATABASE_NAME = "tiktube_history.db"
         private const val DATABASE_VERSION = 1
         private const val TABLE_HISTORY = "history"
 
@@ -60,7 +60,17 @@ class HistoryDatabaseHelper(context: Context) :
         db.insertWithOnConflict(TABLE_HISTORY, null, values, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
-    fun getHistory(limit: Int = 50): List<VideoItem> {
+    fun deleteItem(videoId: String): Boolean {
+        val db = writableDatabase
+        return db.delete(TABLE_HISTORY, "$COL_ID = ?", arrayOf(videoId)) > 0
+    }
+
+    fun clearAllHistory(): Boolean {
+        val db = writableDatabase
+        return db.delete(TABLE_HISTORY, null, null) > 0
+    }
+
+    fun getHistory(limit: Int = 100): List<VideoItem> {
         val list = mutableListOf<VideoItem>()
         val db = readableDatabase
         val cursor = db.query(

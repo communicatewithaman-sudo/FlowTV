@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="96dp"
+    android:layout_marginBottom="12dp"
+    android:background="@drawable/bg_frosted_card"
+    android:clickable="true"
+    android:focusable="true"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="16dp"
+    android:paddingTop="10dp"
+    android:paddingEnd="16dp"
+    android:paddingBottom="10dp">
+
+    <!-- Thumbnail with duration badge -->
+    <FrameLayout
+        android:layout_width="134dp"
+        android:layout_height="76dp">
+
+        <ImageView
+            android:id="@+id/ivHistoryThumb"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#1C1C1E"
+            android:scaleType="centerCrop" />
+
+        <TextView
+            android:id="@+id/tvHistoryDuration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="4dp"
+            android:background="@drawable/bg_now_playing_pill"
+            android:paddingStart="6dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="2dp"
+            android:textColor="@color/text_primary"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            tools:text="14:20" />
+    </FrameLayout>
+
+    <!-- Title and Channel Info -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:layout_marginEnd="16dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvHistoryTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textColor="@color/text_primary"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            tools:text="Video Title Here" />
+
+        <TextView
+            android:id="@+id/tvHistoryChannel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:singleLine="true"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            tools:text="Channel Name" />
+    </LinearLayout>
+
+    <!-- Delete Button for Single Item -->
+    <TextView
+        android:id="@+id/btnDeleteHistoryItem"
+        android:layout_width="wrap_content"
+        android:layout_height="44dp"
+        android:background="@drawable/bg_pill_button"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center"
+        android:paddingStart="18dp"
+        android:paddingEnd="18dp"
+        android:text="🗑️ Delete"
+        android:textColor="#FF453A"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+</LinearLayout>

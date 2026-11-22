@@ -1,17 +1,24 @@
 package com.flowtv.app
 
+import android.content.Context
 import android.os.Bundle
+import android.os.CountDownTimer
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.webkit.WebSettings
+import android.webkit.WebView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.flowtv.app.adapter.HistoryListAdapter
 import com.flowtv.app.adapter.ShelfAdapter
 import com.flowtv.app.data.HistoryDatabaseHelper
 import com.flowtv.app.databinding.ActivityMainBinding
@@ -56,6 +63,9 @@ class MainActivity : AppCompatActivity() {
     private var okLongPressJob: Job? = null
     private var lastBackPressTime = 0L
 
+    // 10-second timer for Clear All History
+    private var clearHistoryTimer: CountDownTimer? = null
+
     private val handler = Handler(Looper.getMainLooper())
     private var scrubHideRunnable: Runnable? = null
 
@@ -65,6 +75,7 @@ class MainActivity : AppCompatActivity() {
     private var subtitlesEnabled = false
 
     private lateinit var shelfAdapter: ShelfAdapter
+    private lateinit var historyAdapter: HistoryListAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -95,6 +106,16 @@ class MainActivity : AppCompatActivity() {
             override fun onReady(youTubePlayer: YouTubePlayer) {
                 ytPlayer = youTubePlayer
                 isPlayerReady = true
+
+                // CRITICAL FIX FOR ANDROID TV: Disable user gesture restriction so videos play automatically
+                binding.youtubePlayerView.post {
+                    findInnerWebView(binding.youtubePlayerView)?.settings?.apply {
+                        mediaPlaybackRequiresUserGesture = false
+                        javaScriptEnabled = true
+                        domStorageEnabled = true
+                        databaseEnabled = true
+                    }
+                }
 
                 // Play first video if feed has already loaded
                 if (videoFeed.isNotEmpty()) {
@@ -153,6 +174,18 @@ class MainActivity : AppCompatActivity() {
         }, options)
     }
 
+    private fun findInnerWebView(viewGroup: ViewGroup): WebView? {
+        for (i in 0 until viewGroup.childCount) {
+            val child = viewGroup.getChildAt(i)
+            if (child is WebView) return child
+            if (child is ViewGroup) {
+                val found = findInnerWebView(child)
+                if (found != null) return found
+            }
+        }
+        return null
+    }
+
     private fun updateTimeDisplay() {
         val cur = currentVideoPosition.toLong()
         val dur = currentVideoDuration.toLong().coerceAtLeast(0)
@@ -170,30 +203,66 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
-        // Shelf RecyclerView (Search & History)
+        // Shelf RecyclerView (Horizontal for Search)
         shelfAdapter = ShelfAdapter(emptyList()) { selectedVideo, _ ->
-            val isHistory = binding.tvShelfTitle.text.toString().contains("History")
             closeMenu()
             binding.shelfOverlay.visibility = View.GONE
 
-            if (!isHistory) {
-                // User started playback from Search: mark search playback mode
-                isSearchPlaybackMode = true
-                val index = currentSearchFeed.indexOfFirst { it.videoId == selectedVideo.videoId }.coerceAtLeast(0)
-                startNewFeed(currentSearchFeed, index)
-            } else {
-                isSearchPlaybackMode = false
-                val index = currentHistoryFeed.indexOfFirst { it.videoId == selectedVideo.videoId }.coerceAtLeast(0)
-                startNewFeed(currentHistoryFeed, index)
-            }
+            // User started playback from Search: mark search playback mode
+            isSearchPlaybackMode = true
+            val index = currentSearchFeed.indexOfFirst { it.videoId == selectedVideo.videoId }.coerceAtLeast(0)
+            startNewFeed(currentSearchFeed, index)
         }
         binding.rvShelf.layoutManager =
             LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         binding.rvShelf.adapter = shelfAdapter
 
+        // History RecyclerView (Vertical list format with per-item Delete)
+        historyAdapter = HistoryListAdapter(
+            items = emptyList(),
+            onItemClick = { selectedVideo, _ ->
+                closeMenu()
+                binding.shelfOverlay.visibility = View.GONE
+                isSearchPlaybackMode = false
+                val index = currentHistoryFeed.indexOfFirst { it.videoId == selectedVideo.videoId }.coerceAtLeast(0)
+                startNewFeed(currentHistoryFeed, index)
+            },
+            onDeleteClick = { selectedVideo, _ ->
+                dbHelper.deleteItem(selectedVideo.videoId)
+                refreshHistoryList()
+                Toast.makeText(this, "Removed from history", Toast.LENGTH_SHORT).show()
+            }
+        )
+        binding.rvHistoryList.layoutManager =
+            LinearLayoutManager(this, LinearLayoutManager.VERTICAL, false)
+        binding.rvHistoryList.adapter = historyAdapter
+
+        // Clear Entire History Button -> Opens 10-Second Countdown Dialog
+        binding.btnClearAllHistory.setOnClickListener {
+            openClearHistoryDialog()
+        }
+
+        // Cancel Clear History
+        binding.btnCancelClearHistory.setOnClickListener {
+            clearHistoryTimer?.cancel()
+            binding.clearHistoryDialog.visibility = View.GONE
+            binding.btnClearAllHistory.requestFocus()
+        }
+
+        // Confirm Clear History (Enabled after 10-second timer completes)
+        binding.btnConfirmClearHistory.setOnClickListener {
+            clearHistoryTimer?.cancel()
+            binding.clearHistoryDialog.visibility = View.GONE
+            dbHelper.clearAllHistory()
+            refreshHistoryList()
+            Toast.makeText(this, "All history cleared", Toast.LENGTH_SHORT).show()
+            binding.rvHistoryList.requestFocus()
+        }
+
         // Keyboard Action / Enter Key for Search EditText
         binding.etSearchInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
+                hideSoftKeyboard(binding.etSearchInput)
                 performSearch(binding.etSearchInput.text.toString())
                 true
             } else {
@@ -201,8 +270,19 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // On-Screen Keyboard Trigger: when EditText is clicked or focused, pop up TV keyboard
+        binding.etSearchInput.setOnClickListener {
+            showSoftKeyboard(binding.etSearchInput)
+        }
+        binding.etSearchInput.setOnFocusChangeListener { view, hasFocus ->
+            if (hasFocus) {
+                showSoftKeyboard(view)
+            }
+        }
+
         // Search Submit Button (side of search box)
         binding.btnSubmitSearch.setOnClickListener {
+            hideSoftKeyboard(binding.etSearchInput)
             performSearch(binding.etSearchInput.text.toString())
         }
 
@@ -245,6 +325,50 @@ class MainActivity : AppCompatActivity() {
         binding.btnExitConfirm.setOnClickListener {
             finish()
         }
+    }
+
+    private fun showSoftKeyboard(view: View) {
+        view.postDelayed({
+            view.requestFocus()
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.showSoftInput(view, InputMethodManager.SHOW_FORCED)
+            imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, InputMethodManager.HIDE_IMPLICIT_ONLY)
+        }, 120)
+    }
+
+    private fun hideSoftKeyboard(view: View) {
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(view.windowToken, 0)
+    }
+
+    private fun openClearHistoryDialog() {
+        binding.clearHistoryDialog.visibility = View.VISIBLE
+        binding.btnConfirmClearHistory.isEnabled = false
+        binding.btnConfirmClearHistory.isClickable = false
+        binding.btnConfirmClearHistory.isFocusable = false
+        binding.btnConfirmClearHistory.alpha = 0.4f
+        binding.btnConfirmClearHistory.text = "Wait (10s)"
+        binding.btnCancelClearHistory.requestFocus()
+
+        clearHistoryTimer?.cancel()
+        clearHistoryTimer = object : CountDownTimer(10_000, 1_000) {
+            override fun onTick(millisUntilFinished: Long) {
+                val secRemaining = (millisUntilFinished / 1000) + 1
+                binding.btnConfirmClearHistory.text = "Wait (${secRemaining}s)"
+                binding.tvCountdownNotice.text =
+                    "Please wait ${secRemaining}s to confirm deleting entire history."
+            }
+
+            override fun onFinish() {
+                binding.btnConfirmClearHistory.isEnabled = true
+                binding.btnConfirmClearHistory.isClickable = true
+                binding.btnConfirmClearHistory.isFocusable = true
+                binding.btnConfirmClearHistory.alpha = 1.0f
+                binding.btnConfirmClearHistory.text = "🗑️ Delete All"
+                binding.tvCountdownNotice.text = "You can now permanently delete all history."
+                binding.btnConfirmClearHistory.requestFocus()
+            }
+        }.start()
     }
 
     // ==========================================
@@ -419,7 +543,6 @@ class MainActivity : AppCompatActivity() {
     private fun openMenu() {
         binding.menuDrawer.visibility = View.VISIBLE
 
-        // Mathematical scaling and translation so NOTHING clips off-screen:
         val menuWidthPx = 320f * resources.displayMetrics.density
         val screenWidthPx = resources.displayMetrics.widthPixels.toFloat()
         val scale = ((screenWidthPx - menuWidthPx) / screenWidthPx).coerceIn(0.6f, 0.95f)
@@ -451,7 +574,7 @@ class MainActivity : AppCompatActivity() {
                 if (binding.searchHeader.isVisible) {
                     binding.etSearchInput.requestFocus()
                 } else {
-                    binding.rvShelf.requestFocus()
+                    binding.rvHistoryList.requestFocus()
                 }
             } else {
                 binding.playerTouchOverlay.requestFocus()
@@ -462,15 +585,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openSearchShelf() {
+        // Auto-pause video on home page and cancel any background feed searches
         feedLoadJob?.cancel()
         ytPlayer?.pause()
 
         binding.shelfOverlay.visibility = View.VISIBLE
         binding.searchHeader.visibility = View.VISIBLE
-        binding.tvShelfTitle.visibility = View.GONE // No "Search YouTube" label below placeholder
+        binding.historyHeader.visibility = View.GONE
+        binding.rvShelf.visibility = View.VISIBLE
+        binding.rvHistoryList.visibility = View.GONE
 
         shelfAdapter.updateList(currentSearchFeed)
         binding.etSearchInput.requestFocus()
+        showSoftKeyboard(binding.etSearchInput)
     }
 
     private fun performSearch(query: String) {
@@ -493,25 +620,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openHistoryShelf() {
+        // Auto-pause video on home page and cancel any background feed searches
         feedLoadJob?.cancel()
         ytPlayer?.pause()
 
         binding.shelfOverlay.visibility = View.VISIBLE
         binding.searchHeader.visibility = View.GONE
-        binding.tvShelfTitle.visibility = View.VISIBLE
-        binding.tvShelfTitle.text = "Watch History"
+        binding.historyHeader.visibility = View.VISIBLE
+        binding.rvShelf.visibility = View.GONE
+        binding.rvHistoryList.visibility = View.VISIBLE
 
+        refreshHistoryList()
+        binding.rvHistoryList.requestFocus()
+    }
+
+    private fun refreshHistoryList() {
         val history = dbHelper.getHistory()
         currentHistoryFeed.clear()
         currentHistoryFeed.addAll(history)
-        shelfAdapter.updateList(currentHistoryFeed)
-        binding.rvShelf.requestFocus()
+        historyAdapter.updateList(currentHistoryFeed)
     }
 
     private fun isHomeScreen(): Boolean {
         return !binding.menuDrawer.isVisible &&
                 !binding.shelfOverlay.isVisible &&
                 !binding.exitDialog.isVisible &&
+                !binding.clearHistoryDialog.isVisible &&
                 !isSearchPlaybackMode
     }
 
@@ -535,6 +669,7 @@ class MainActivity : AppCompatActivity() {
             (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_DPAD_CENTER) &&
             event.action == KeyEvent.ACTION_UP
         ) {
+            hideSoftKeyboard(binding.etSearchInput)
             performSearch(binding.etSearchInput.text.toString())
             return true
         }
@@ -553,12 +688,20 @@ class MainActivity : AppCompatActivity() {
                 isOkPressed = false
                 if (okLongPressJob?.isActive == true) {
                     okLongPressJob?.cancel()
-                    if (!binding.shelfOverlay.isVisible && !binding.menuDrawer.isVisible && !binding.exitDialog.isVisible) {
+                    if (!binding.shelfOverlay.isVisible &&
+                        !binding.menuDrawer.isVisible &&
+                        !binding.exitDialog.isVisible &&
+                        !binding.clearHistoryDialog.isVisible
+                    ) {
                         togglePlayPause()
                     }
                 }
             }
-            if (binding.shelfOverlay.isVisible || binding.menuDrawer.isVisible || binding.exitDialog.isVisible) {
+            if (binding.shelfOverlay.isVisible ||
+                binding.menuDrawer.isVisible ||
+                binding.exitDialog.isVisible ||
+                binding.clearHistoryDialog.isVisible
+            ) {
                 return super.dispatchKeyEvent(event)
             }
             return true
@@ -575,7 +718,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 3. In-Video Remote Navigation (when no overlays are showing)
-        if (!binding.shelfOverlay.isVisible && !binding.menuDrawer.isVisible && !binding.exitDialog.isVisible && event.action == KeyEvent.ACTION_DOWN) {
+        if (!binding.shelfOverlay.isVisible &&
+            !binding.menuDrawer.isVisible &&
+            !binding.exitDialog.isVisible &&
+            !binding.clearHistoryDialog.isVisible &&
+            event.action == KeyEvent.ACTION_DOWN
+        ) {
             when (keyCode) {
                 KeyEvent.KEYCODE_DPAD_DOWN -> {
                     playNextVideo()
@@ -598,6 +746,16 @@ class MainActivity : AppCompatActivity() {
 
         // 4. Back Key Handling
         if (keyCode == KeyEvent.KEYCODE_BACK) {
+            // Priority 0: If Clear History Dialog is open -> Close Clear History Dialog
+            if (binding.clearHistoryDialog.isVisible) {
+                if (event.action == KeyEvent.ACTION_UP) {
+                    clearHistoryTimer?.cancel()
+                    binding.clearHistoryDialog.visibility = View.GONE
+                    binding.btnClearAllHistory.requestFocus()
+                }
+                return true
+            }
+
             // Priority 1: If Menu is open -> Close Menu (stays on Search, History, or whatever was open!)
             if (binding.menuDrawer.isVisible) {
                 if (event.action == KeyEvent.ACTION_UP) {
@@ -628,6 +786,7 @@ class MainActivity : AppCompatActivity() {
             if (binding.shelfOverlay.isVisible) {
                 if (event.action == KeyEvent.ACTION_UP) {
                     binding.shelfOverlay.visibility = View.GONE
+                    hideSoftKeyboard(binding.etSearchInput)
                     // Resume home video playback
                     ytPlayer?.play()
                 }
@@ -678,6 +837,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         saveWatchHistory()
+        clearHistoryTimer?.cancel()
         binding.youtubePlayerView.release()
     }
 }

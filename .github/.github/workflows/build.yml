@@ -1,0 +1,39 @@
+name: Build YouTok APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: 'Flavor to build (stbeta, ststable, stfdroid)'
+        required: true
+        default: 'ststable'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Grant execute permission for Gradle wrapper
+        run: chmod +x ./gradlew
+
+      - name: Build Release APK
+        run: |
+          ./gradlew assembleRelease -Pflavor=${{ github.event.inputs.flavor || 'ststable' }}
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: YouTok-${{ github.event.inputs.flavor || 'ststable' }}-apk
+          path: '**/build/outputs/apk/**/*.apk'

@@ -25,7 +25,6 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // Auto-sign with debug key so release APK installs immediately on any TV box
             signingConfig signingConfigs.debug
         }
     }
@@ -52,7 +51,10 @@ dependencies {
     implementation 'androidx.cardview:cardview:1.0.0'
     implementation 'com.google.android.material:material:1.11.0'
 
-    // Media3 / ExoPlayer (Hardware Accelerated on Amlogic S905X)
+    // Official YouTube Player Engine (100% reliable stream playback, no bot checks)
+    implementation 'com.pierfrancescosoffritti.androidyoutubeplayer:core:12.1.0'
+
+    // Media3 / ExoPlayer
     implementation 'androidx.media3:media3-exoplayer:1.2.1'
     implementation 'androidx.media3:media3-ui:1.2.1'
     implementation 'androidx.media3:media3-datasource-okhttp:1.2.1'

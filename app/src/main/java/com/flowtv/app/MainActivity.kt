@@ -11,17 +11,16 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.flowtv.app.adapter.ShelfAdapter
 import com.flowtv.app.data.HistoryDatabaseHelper
 import com.flowtv.app.databinding.ActivityMainBinding
 import com.flowtv.app.model.VideoItem
 import com.flowtv.app.service.YouTubeExtractor
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -29,7 +28,8 @@ import kotlinx.coroutines.launch
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private var player: ExoPlayer? = null
+    private var ytPlayer: YouTubePlayer? = null
+    private var isPlayerReady = false
     private lateinit var dbHelper: HistoryDatabaseHelper
 
     // Active Playback Feed (Home)
@@ -40,9 +40,13 @@ class MainActivity : AppCompatActivity() {
     private val currentSearchFeed = mutableListOf<VideoItem>()
     private val currentHistoryFeed = mutableListOf<VideoItem>()
 
+    // Current video playback stats
+    private var currentVideoDuration = 0f
+    private var currentVideoPosition = 0f
+    private var isVideoPlaying = false
+
     // Async Coroutine Jobs
     private var feedLoadJob: Job? = null
-    private var playbackJob: Job? = null
     private var searchJob: Job? = null
 
     // Navigation state
@@ -53,7 +57,6 @@ class MainActivity : AppCompatActivity() {
     private var lastBackPressTime = 0L
 
     private val handler = Handler(Looper.getMainLooper())
-    private var timeUpdateRunnable: Runnable? = null
     private var scrubHideRunnable: Runnable? = null
 
     // Settings
@@ -70,62 +73,100 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        lifecycle.addObserver(binding.youtubePlayerView)
         dbHelper = HistoryDatabaseHelper(this)
 
-        initPlayer()
+        initYouTubePlayer()
         setupUI()
-        startTimeTracker()
         loadRecommendedFeed()
     }
 
-    private fun initPlayer() {
-        player = ExoPlayer.Builder(this)
-            .setSeekForwardIncrementMs(10_000)
-            .setSeekBackIncrementMs(10_000)
-            .build().apply {
-                playWhenReady = true
-                addListener(object : Player.Listener {
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        when (playbackState) {
-                            Player.STATE_BUFFERING -> {
-                                binding.topProgressBar.visibility = View.VISIBLE
-                                showStatus("Buffering…")
-                            }
-                            Player.STATE_READY -> {
-                                binding.topProgressBar.visibility = View.GONE
-                                hideStatus()
-                                updateBottomHUDVisibility()
-                                saveWatchHistory()
-                            }
-                            Player.STATE_ENDED -> {
-                                // Do NOT auto-advance if user is browsing Search or History!
-                                if (!binding.shelfOverlay.isVisible) {
-                                    playNextVideo()
-                                }
-                            }
-                            Player.STATE_IDLE -> {
-                                binding.topProgressBar.visibility = View.GONE
-                                hideStatus()
-                            }
-                        }
-                    }
+    private fun initYouTubePlayer() {
+        // Disable YouTube default web controls: controls(0)
+        // All playback, UI, scrubbing, HUD, remote keys are handled by our TV interface
+        val options = IFramePlayerOptions.Builder()
+            .controls(0)
+            .rel(0)
+            .ivLoadPolicy(3)
+            .ccLoadPolicy(0)
+            .build()
 
-                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+        binding.youtubePlayerView.initialize(object : AbstractYouTubePlayerListener() {
+            override fun onReady(youTubePlayer: YouTubePlayer) {
+                ytPlayer = youTubePlayer
+                isPlayerReady = true
+
+                // Play first video if feed has already loaded
+                if (videoFeed.isNotEmpty()) {
+                    playCurrentVideo()
+                }
+            }
+
+            override fun onStateChange(youTubePlayer: YouTubePlayer, state: PlayerConstants.PlayerState) {
+                when (state) {
+                    PlayerConstants.PlayerState.BUFFERING -> {
+                        binding.topProgressBar.visibility = View.VISIBLE
+                        showStatus("Buffering…")
+                    }
+                    PlayerConstants.PlayerState.PLAYING -> {
+                        isVideoPlaying = true
+                        binding.topProgressBar.visibility = View.GONE
+                        hideStatus()
+                        updateBottomHUDVisibility()
+                        saveWatchHistory()
+                    }
+                    PlayerConstants.PlayerState.PAUSED -> {
+                        isVideoPlaying = false
+                        binding.topProgressBar.visibility = View.GONE
                         updateBottomHUDVisibility()
                     }
-
-                    override fun onPlayerError(error: PlaybackException) {
-                        binding.topProgressBar.visibility = View.GONE
+                    PlayerConstants.PlayerState.ENDED -> {
+                        isVideoPlaying = false
+                        // Do NOT auto-advance if user is on Search or History shelf
                         if (!binding.shelfOverlay.isVisible) {
-                            showStatus("Stream error, retrying…")
-                            handler.postDelayed({
-                                if (!binding.shelfOverlay.isVisible) playNextVideo()
-                            }, 1800)
+                            playNextVideo()
                         }
                     }
-                })
+                    else -> {}
+                }
             }
-        binding.playerView.player = player
+
+            override fun onCurrentSecond(youTubePlayer: YouTubePlayer, second: Float) {
+                currentVideoPosition = second
+                updateTimeDisplay()
+            }
+
+            override fun onVideoDuration(youTubePlayer: YouTubePlayer, duration: Float) {
+                currentVideoDuration = duration
+                updateTimeDisplay()
+            }
+
+            override fun onError(youTubePlayer: YouTubePlayer, error: PlayerConstants.PlayerError) {
+                binding.topProgressBar.visibility = View.GONE
+                if (!binding.shelfOverlay.isVisible) {
+                    showStatus("Retrying next video…")
+                    handler.postDelayed({
+                        if (!binding.shelfOverlay.isVisible) playNextVideo()
+                    }, 1500)
+                }
+            }
+        }, options)
+    }
+
+    private fun updateTimeDisplay() {
+        val cur = currentVideoPosition.toLong()
+        val dur = currentVideoDuration.toLong().coerceAtLeast(0)
+        val curM = cur / 60
+        val curS = cur % 60
+        val durM = dur / 60
+        val durS = dur % 60
+        binding.tvBottomTimePill.text =
+            String.format("%02d:%02d / %02d:%02d", curM, curS, durM, durS)
+
+        if (dur > 0) {
+            binding.scrubProgressBar.progress =
+                ((currentVideoPosition / currentVideoDuration) * 1000).toInt().coerceIn(0, 1000)
+        }
     }
 
     private fun setupUI() {
@@ -176,7 +217,7 @@ class MainActivity : AppCompatActivity() {
             qualityIndex = (qualityIndex + 1) % qualityOptions.size
             val quality = qualityOptions[qualityIndex]
             binding.btnMenuQuality.text = "⚙️   Quality: $quality"
-            restartCurrentVideoWithQuality()
+            restartCurrentVideo()
         }
 
         // Menu Button: Subtitles
@@ -238,7 +279,6 @@ class MainActivity : AppCompatActivity() {
     // ==========================================
 
     private fun loadRecommendedFeed() {
-        // If shelf is open, do not load or auto-play home feed
         if (binding.shelfOverlay.isVisible) return
 
         showStatus("Loading videos…")
@@ -269,6 +309,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun playCurrentVideo() {
         val video = getCurrentVideo() ?: return
+        if (!isPlayerReady || ytPlayer == null) return
 
         isCleanScreenMode = false
         updateBottomHUDVisibility()
@@ -286,52 +327,16 @@ class MainActivity : AppCompatActivity() {
             binding.tvBottomDislikes.text = "👎 $dislikes"
         }
 
-        showStatus("Loading ${if (video.isShort) "Short" else "Video"}…")
+        showStatus("Playing ${if (video.isShort) "Short" else "Video"}…")
         binding.topProgressBar.visibility = View.VISIBLE
 
-        playbackJob?.cancel()
-        playbackJob = lifecycleScope.launch {
-            val streamUrl = video.streamUrl ?: YouTubeExtractor.resolveStreamUrl(
-                video.videoId,
-                qualityOptions[qualityIndex]
-            )
-            video.streamUrl = streamUrl
+        // Load and play video directly through YouTube Player Engine
+        val startSeconds = if (video.resumePositionMs > 5000) (video.resumePositionMs / 1000f) else 0f
+        ytPlayer?.loadVideo(video.videoId, startSeconds)
 
-            // If shelf was opened while resolving, abort playback
-            if (binding.shelfOverlay.isVisible) return@launch
-
-            if (streamUrl != null) {
-                // ExoPlayer HLS detection: iOS streams return m3u8 manifests
-                val mediaItem = if (streamUrl.contains(".m3u8", ignoreCase = true) ||
-                    streamUrl.contains("manifest/hls_variant", ignoreCase = true) ||
-                    streamUrl.contains("youtubei/v1/player", ignoreCase = true)
-                ) {
-                    MediaItem.Builder()
-                        .setUri(streamUrl)
-                        .setMimeType(MimeTypes.APPLICATION_M3U8)
-                        .build()
-                } else {
-                    MediaItem.fromUri(streamUrl)
-                }
-
-                player?.setMediaItem(mediaItem)
-                if (video.resumePositionMs > 5000) {
-                    player?.seekTo(video.resumePositionMs)
-                }
-                player?.prepare()
-                player?.play()
-
-                // Smooth fade-in
-                binding.playerView.alpha = 0f
-                binding.playerView.animate().alpha(1f).setDuration(280).start()
-            } else {
-                showStatus("Stream unavailable, skipping…")
-                delay(1200)
-                if (!binding.shelfOverlay.isVisible) {
-                    playNextVideo()
-                }
-            }
-        }
+        // Smooth video container fade-in
+        binding.youtubePlayerView.alpha = 0f
+        binding.youtubePlayerView.animate().alpha(1f).setDuration(260).start()
     }
 
     private fun playNextVideo() {
@@ -360,41 +365,18 @@ class MainActivity : AppCompatActivity() {
         } else null
     }
 
-    // ==========================================
-    // TIME TRACKER & BOTTOM HUD
-    // ==========================================
-
-    private fun startTimeTracker() {
-        timeUpdateRunnable = object : Runnable {
-            override fun run() {
-                val p = player
-                if (p != null && p.playbackState == Player.STATE_READY) {
-                    val cur = p.currentPosition
-                    val dur = p.duration.coerceAtLeast(0)
-                    val curM = (cur / 1000) / 60
-                    val curS = (cur / 1000) % 60
-                    val durM = (dur / 1000) / 60
-                    val durS = (dur / 1000) % 60
-                    binding.tvBottomTimePill.text =
-                        String.format("%02d:%02d / %02d:%02d", curM, curS, durM, durS)
-
-                    if (dur > 0) {
-                        binding.scrubProgressBar.progress =
-                            ((cur.toFloat() / dur) * 1000).toInt()
-                    }
-                }
-                handler.postDelayed(this, 500)
-            }
+    private fun restartCurrentVideo() {
+        val curTime = currentVideoPosition
+        getCurrentVideo()?.let {
+            ytPlayer?.loadVideo(it.videoId, curTime)
         }
-        handler.post(timeUpdateRunnable!!)
     }
 
     private fun updateBottomHUDVisibility() {
         if (!isCleanScreenMode) {
             binding.bottomHUD.visibility = View.VISIBLE
         } else {
-            val isPlaying = player?.isPlaying ?: false
-            binding.bottomHUD.visibility = if (!isPlaying) View.VISIBLE else View.GONE
+            binding.bottomHUD.visibility = if (!isVideoPlaying) View.VISIBLE else View.GONE
         }
     }
 
@@ -409,21 +391,21 @@ class MainActivity : AppCompatActivity() {
     // SEEKING & SCRUB BAR OVERLAY
     // ==========================================
 
-    private fun seekRelative(offsetMs: Long) {
-        val p = player ?: return
-        val newPos = (p.currentPosition + offsetMs).coerceIn(0, p.duration.coerceAtLeast(0))
-        p.seekTo(newPos)
+    private fun seekRelative(offsetSec: Float) {
+        val newPos = (currentVideoPosition + offsetSec).coerceIn(0f, currentVideoDuration.coerceAtLeast(1f))
+        ytPlayer?.seekTo(newPos)
+        currentVideoPosition = newPos
 
         binding.scrubOverlay.visibility = View.VISIBLE
-        val sign = if (offsetMs >= 0) "+10s" else "-10s"
-        val curM = (newPos / 1000) / 60
-        val curS = (newPos / 1000) % 60
-        val totM = (p.duration / 1000) / 60
-        val totS = (p.duration / 1000) % 60
+        val sign = if (offsetSec >= 0) "+10s" else "-10s"
+        val curM = newPos.toLong() / 60
+        val curS = newPos.toLong() % 60
+        val totM = currentVideoDuration.toLong() / 60
+        val totS = currentVideoDuration.toLong() % 60
         binding.tvScrubTime.text =
             String.format("%s   %02d:%02d / %02d:%02d", sign, curM, curS, totM, totS)
         binding.scrubProgressBar.progress =
-            ((newPos.toFloat() / p.duration.coerceAtLeast(1)) * 1000).toInt()
+            ((newPos / currentVideoDuration.coerceAtLeast(1f)) * 1000).toInt().coerceIn(0, 1000)
 
         scrubHideRunnable?.let { handler.removeCallbacks(it) }
         scrubHideRunnable = Runnable { binding.scrubOverlay.visibility = View.GONE }
@@ -438,7 +420,6 @@ class MainActivity : AppCompatActivity() {
         binding.menuDrawer.visibility = View.VISIBLE
 
         // Mathematical scaling and translation so NOTHING clips off-screen:
-        // Main content scales down and shifts left to leave exact space for the 320dp menu
         val menuWidthPx = 320f * resources.displayMetrics.density
         val screenWidthPx = resources.displayMetrics.widthPixels.toFloat()
         val scale = ((screenWidthPx - menuWidthPx) / screenWidthPx).coerceIn(0.6f, 0.95f)
@@ -473,7 +454,7 @@ class MainActivity : AppCompatActivity() {
                     binding.rvShelf.requestFocus()
                 }
             } else {
-                binding.playerView.requestFocus()
+                binding.playerTouchOverlay.requestFocus()
             }
             return true
         }
@@ -481,10 +462,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openSearchShelf() {
-        // Stop any background home feed loading or playback
         feedLoadJob?.cancel()
-        playbackJob?.cancel()
-        player?.pause()
+        ytPlayer?.pause()
 
         binding.shelfOverlay.visibility = View.VISIBLE
         binding.searchHeader.visibility = View.VISIBLE
@@ -514,10 +493,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openHistoryShelf() {
-        // Stop any background home feed loading or playback
         feedLoadJob?.cancel()
-        playbackJob?.cancel()
-        player?.pause()
+        ytPlayer?.pause()
 
         binding.shelfOverlay.visibility = View.VISIBLE
         binding.searchHeader.visibility = View.GONE
@@ -538,15 +515,9 @@ class MainActivity : AppCompatActivity() {
                 !isSearchPlaybackMode
     }
 
-    private fun restartCurrentVideoWithQuality() {
-        val video = getCurrentVideo() ?: return
-        video.streamUrl = null
-        playCurrentVideo()
-    }
-
     private fun saveWatchHistory() {
         val video = getCurrentVideo() ?: return
-        val pos = player?.currentPosition ?: 0L
+        val pos = (currentVideoPosition * 1000).toLong()
         if (pos > 3000) {
             dbHelper.saveWatchProgress(video, pos)
         }
@@ -615,11 +586,11 @@ class MainActivity : AppCompatActivity() {
                     return true
                 }
                 KeyEvent.KEYCODE_DPAD_LEFT -> {
-                    seekRelative(-10_000)
+                    seekRelative(-10f)
                     return true
                 }
                 KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    seekRelative(+10_000)
+                    seekRelative(+10f)
                     return true
                 }
             }
@@ -647,7 +618,7 @@ class MainActivity : AppCompatActivity() {
             if (isSearchPlaybackMode) {
                 if (event.action == KeyEvent.ACTION_UP) {
                     isSearchPlaybackMode = false
-                    player?.pause()
+                    ytPlayer?.pause()
                     openSearchShelf()
                 }
                 return true
@@ -658,7 +629,7 @@ class MainActivity : AppCompatActivity() {
                 if (event.action == KeyEvent.ACTION_UP) {
                     binding.shelfOverlay.visibility = View.GONE
                     // Resume home video playback
-                    player?.play()
+                    ytPlayer?.play()
                 }
                 return true
             }
@@ -691,21 +662,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun togglePlayPause() {
-        val p = player ?: return
-        if (p.isPlaying) p.pause() else p.play()
+        if (isVideoPlaying) {
+            ytPlayer?.pause()
+        } else {
+            ytPlayer?.play()
+        }
     }
 
     override fun onPause() {
         super.onPause()
         saveWatchHistory()
-        player?.pause()
+        ytPlayer?.pause()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         saveWatchHistory()
-        timeUpdateRunnable?.let { handler.removeCallbacks(it) }
-        player?.release()
-        player = null
+        binding.youtubePlayerView.release()
     }
 }

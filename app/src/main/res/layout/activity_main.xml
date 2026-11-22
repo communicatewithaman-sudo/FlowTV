@@ -13,15 +13,25 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <!-- A. VIDEO PLAYER -->
-        <androidx.media3.ui.PlayerView
-            android:id="@+id/playerView"
+        <!-- A. VIDEO PLAYER (100% Reliable YouTube Player Engine + Touch blocking for native TV controls) -->
+        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="@color/black"
-            app:use_controller="false"
-            app:surface_type="surface_view"
-            app:resize_mode="fit" />
+            android:layout_height="match_parent">
+
+            <com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
+                android:id="@+id/youtubePlayerView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                app:enableAutomaticInitialization="false" />
+
+            <!-- Transparent Overlay to capture remote DPAD clicks without touching webview -->
+            <View
+                android:id="@+id/playerTouchOverlay"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clickable="true"
+                android:focusable="false" />
+        </FrameLayout>
 
         <!-- B. BOTTOM HUD (ALWAYS VISIBLE IN NORMAL MODE) -->
         <LinearLayout

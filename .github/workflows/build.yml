@@ -2,64 +2,38 @@ name: Build YouTok APK
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [main]
   workflow_dispatch:
-
-permissions:
-  contents: write
+    inputs:
+      flavor:
+        description: 'Flavor to build (stbeta, ststable, stfdroid)'
+        required: true
+        default: 'ststable'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
+          java-version: '17'
 
-      - name: Grant Gradle permissions
-        run: chmod +x gradlew
+      - name: Grant execute permission for Gradle wrapper
+        run: chmod +x ./gradlew
 
-      - name: Build Single Universal YouTok APK
-        run: ./gradlew assembleStbetaRelease --no-daemon --stacktrace
-
-      - name: Prepare APK for Release
+      - name: Build Release APK
         run: |
-          mkdir -p output
-          cp smarttubetv/build/outputs/apk/stbeta/release/*.apk output/YouTok.apk
-          ls -lh output/
+          ./gradlew assembleRelease -Pflavor=${{ github.event.inputs.flavor || 'ststable' }}
 
-      - name: Upload Single Universal APK Artifact
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: YouTok-Universal
-          path: output/YouTok.apk
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Create or Update GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: github.ref == 'refs/heads/main'
-        with:
-          tag_name: latest
-          name: "YouTok Universal (32-bit & 64-bit)"
-          body: |
-            ### 📺 YouTok - Single Universal Android TV App
-            - **Universal Architecture:** Runs natively on both 32-bit (armeabi-v7a) and 64-bit (arm64-v8a) Android TV boxes.
-            - **Direct Download:** Download `YouTok.apk` below and install directly without unzipping.
-            - **Guaranteed Video Playback:** Uses SmartTube engine for live n-sig deciphering and PoToken attestation.
-            - **Minimal & Clean:** Streamlined UI with Home, Subscriptions, History, Settings and interactive Tips carousel.
-            - **Auto-Hide Overlay:** Controls and title appear on seek / play / pause and automatically hide after 3 seconds.
-            - **Auto-Pause:** Video pauses on exit dialog or navigating away from Home, and resumes on return.
-            - **Power Button Safe:** Holding the power button is safely consumed so playback is not interrupted.
-          files: output/YouTok.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: YouTok-${{ github.event.inputs.flavor || 'ststable' }}-apk
+          path: '**/build/outputs/apk/**/*.apk'

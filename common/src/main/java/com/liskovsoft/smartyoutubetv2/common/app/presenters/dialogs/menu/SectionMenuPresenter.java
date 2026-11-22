@@ -107,7 +107,6 @@ public class SectionMenuPresenter extends BaseMenuPresenter {
         appendToggleHistoryButton();
         appendClearHistoryButton();
         appendUpdateCheckButton();
-        appendYouTokTipsSection();
 
         for (Long menuItem : MainUIData.instance(getContext()).getMenuItemsOrdered()) {
             MenuAction menuAction = mMenuMapping.get(menuItem);
@@ -135,7 +134,6 @@ public class SectionMenuPresenter extends BaseMenuPresenter {
         appendMoveSectionButton();
         appendRenameSectionButton();
         appendClearHistoryButton();
-        appendYouTokTipsSection();
 
         for (Long menuItem : MainUIData.instance(getContext()).getMenuItemsOrdered()) {
             MenuAction menuAction = mMenuMapping.get(menuItem);
@@ -309,30 +307,5 @@ public class SectionMenuPresenter extends BaseMenuPresenter {
                     UiOptionItem.from(getContext().getString(provider.getTitleResId()), optionItem -> provider.onClicked(getVideo(), getCallback()))
             );
         }
-    }
-
-    /**
-     * YouTok: Append a Tips & Shortcuts carousel at the bottom of the menu dialog.
-     * Use left/right arrow to browse through tips.
-     */
-    private void appendYouTokTipsSection() {
-        String[] tips = new String[] {
-            "💡 Press BACK twice to exit the app",
-            "💡 Seek with Left / Right arrow keys while watching",
-            "💡 Press OK on a video to pause or resume playback",
-            "💡 Go to History to revisit watched videos",
-            "💡 Go to Subscriptions to see latest from channels you follow",
-            "💡 Long-press on a sidebar section to open this menu",
-            "💡 Video overlay hides automatically after 3 seconds",
-            "💡 Open Settings to change video quality or subtitles",
-            "💡 Press Back from Search to return without losing results",
-        };
-
-        java.util.List<com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionItem> tipItems = new java.util.ArrayList<>();
-        for (String tip : tips) {
-            tipItems.add(UiOptionItem.from(tip, optionItem -> { /* read-only tip */ }));
-        }
-
-        mDialogPresenter.appendRadioCategory("📋 Tips & Shortcuts", tipItems);
     }
 }

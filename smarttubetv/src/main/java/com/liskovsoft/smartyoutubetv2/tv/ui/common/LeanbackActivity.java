@@ -51,12 +51,20 @@ public abstract class LeanbackActivity extends MotherActivity {
     public boolean dispatchKeyEvent(KeyEvent event) {
         Log.d(TAG, event);
 
-        // YouTok: Consume KEYCODE_POWER long-press so it does nothing during playback
-        if (event.getKeyCode() == KeyEvent.KEYCODE_POWER
-                && (event.isLongPress() || event.getRepeatCount() > 0)) {
-            return true;
+        // Part 7.4: BACK long-press on Home refreshes the video feed
+        if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN && (event.isLongPress() || event.getRepeatCount() >= 2)) {
+                if (!getViewManager().hasParentView(this)) {
+                    BrowsePresenter presenter = BrowsePresenter.instance(this);
+                    if (presenter != null) {
+                        presenter.refresh();
+                        return true;
+                    }
+                }
+            }
         }
 
+        // Part 7.4: Do not intercept the system POWER button
         KeyEvent newEvent = mGlobalKeyTranslator.translate(event);
         return super.dispatchKeyEvent(newEvent);
     }

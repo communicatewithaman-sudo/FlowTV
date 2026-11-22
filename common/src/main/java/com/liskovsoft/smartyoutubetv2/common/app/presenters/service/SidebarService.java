@@ -247,7 +247,7 @@ public class SidebarService implements ProfileChangeListener {
         mDefaultSections.put(R.string.header_news, MediaGroup.TYPE_NEWS);
         mDefaultSections.put(R.string.header_music, MediaGroup.TYPE_MUSIC);
         mDefaultSections.put(R.string.header_channels, MediaGroup.TYPE_CHANNEL_UPLOADS);
-        mDefaultSections.put(R.string.header_subscriptions, MediaGroup.TYPE_SUBSCRIPTIONS);
+        // Disabled Subscriptions for account‑free YouTok
         mDefaultSections.put(R.string.header_history, MediaGroup.TYPE_HISTORY);
         mDefaultSections.put(R.string.header_blocked_channels, MediaGroup.TYPE_BLOCKED_CHANNELS);
         mDefaultSections.put(R.string.header_playlists, MediaGroup.TYPE_USER_PLAYLISTS);
@@ -261,7 +261,9 @@ public class SidebarService implements ProfileChangeListener {
         for (int sectionId : mDefaultSections.values()) {
             boolean isAllowed = Helpers.equalsAny(sectionId, new int[] {
                     MediaGroup.TYPE_HOME,
-                    MediaGroup.TYPE_SUBSCRIPTIONS,
+                                    MediaGroup.TYPE_HOME,
+                MediaGroup.TYPE_HISTORY,
+                MediaGroup.TYPE_SETTINGS,
                     MediaGroup.TYPE_HISTORY,
                     MediaGroup.TYPE_SETTINGS
             });
@@ -319,7 +321,9 @@ public class SidebarService implements ProfileChangeListener {
     private void enforceAllowedSections() {
         int[] allowedIds = new int[] {
                 MediaGroup.TYPE_HOME,
-                MediaGroup.TYPE_SUBSCRIPTIONS,
+                                MediaGroup.TYPE_HOME,
+                MediaGroup.TYPE_HISTORY,
+                MediaGroup.TYPE_SETTINGS,
                 MediaGroup.TYPE_HISTORY,
                 MediaGroup.TYPE_SETTINGS
         };

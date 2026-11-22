@@ -1,0 +1,111 @@
+================================================================================
+                    YOUTOK - MASTER REQUIREMENTS SPECIFICATION
+================================================================================
+Platform: Android TV (Amlogic S905X, Android 7.1.2 Nougat, 1GB RAM)
+Architecture: Single Universal APK (armeabi-v7a 32-bit + arm64-v8a 64-bit)
+Playback Core: SmartTube MediaServiceCore + ExoPlayer (100% Unaltered)
+UI & Behavior: Custom TikTok-Style Continuous TV Experience, YouTube Red (#E50914)
+================================================================================
+
+--------------------------------------------------------------------------------
+1. PLAYBACK ENGINE & CORE GUARANTEE
+--------------------------------------------------------------------------------
+- Keep SmartTube's video loading and playback engine (MediaServiceCore + custom 
+  ExoPlayer) 100% intact and unchanged.
+- Must solve live YouTube n-sig JS cipher and poToken attestation without fail.
+- Absolutely NO video playback errors, NO title-only loading, and NO skipping to 
+  the next video in an infinite loop.
+- Deliver ONE single signed universal APK ("YouTok.apk") supporting both 32-bit 
+  (armeabi-v7a) and 64-bit (arm64-v8a).
+- Must eliminate the "Package appears to be invalid" / parse error on Android 7.1.2.
+- Direct APK download link on GitHub Releases (never zipped).
+
+--------------------------------------------------------------------------------
+2. BRANDING & VISUAL IDENTITY
+--------------------------------------------------------------------------------
+- App Name: YouTok (no "beta" suffix or other names).
+- Accent Color: YouTube Red (#E50914) with pitch-black / dark glass backgrounds.
+- App Icons & Banners: Dark squircle icon (#181818) with red badge and bold "Y" 
+  emblem, plus a 320x180 Leanback launcher banner.
+- Modern Loading Screen: Clean rotating circular spinner.
+- No Obstructive Text: ZERO text during loading (no "Searching for next video...",
+  no "Please wait while data is loading...").
+
+--------------------------------------------------------------------------------
+3. TIKTOK-STYLE TV FEED & SINGLE VIEW MODE
+--------------------------------------------------------------------------------
+- Continuous Vertical Feed: Videos play full-screen automatically. Pressing D-Pad 
+  DOWN advances to the next video, and D-Pad UP goes to the previous video.
+- Single View Mode Only: NO toggling between normal mode and full screen mode.
+- 3-Second Auto-Hide Overlay: Video title, channel info, progress bar, and 
+  playback controls show for exactly 3 seconds on launch, seek, or play/pause, 
+  and then automatically fade out (even while paused).
+- Stop Background Searching on Leaving Feed: If searching for the next video in 
+  the background, stop searching when leaving Home; resume searching only when 
+  returning to Home.
+
+--------------------------------------------------------------------------------
+4. REMOTE CONTROL BUTTON BINDINGS
+--------------------------------------------------------------------------------
+- D-Pad UP:    Smoothly swipe to previous video (TikTok style).
+- D-Pad DOWN:  Smoothly swipe to next video (TikTok style).
+- D-Pad LEFT:  Seek backward (-10s / -5s); displays timeline overlay for 3s.
+- D-Pad RIGHT: Seek forward (+10s / +5s); displays timeline overlay for 3s.
+- OK / CENTER: Toggle Play / Pause; displays overlay for 3s.
+- POWER (Hold): Does NOTHING. Holding or repeating KEYCODE_POWER is consumed by 
+               the app so playback and TV viewing are never interrupted.
+- BACK (Single): Returns to previous screen / shelf / Home feed.
+- BACK (from Search Video): Pressing Back on a video opened from Search returns 
+               directly to the Search results screen with keyboard ready.
+- BACK (Double-Press on Home): Pauses video and shows Exit Confirmation Dialog.
+
+--------------------------------------------------------------------------------
+5. AUTO-PAUSE & RESUME NAVIGATION RULES
+--------------------------------------------------------------------------------
+- Exit Dialog: Double-pressing Back pauses playback. If Cancel or Back is 
+  pressed, playback resumes. If Confirm is selected, the app closes.
+- Leaving Home: Navigating away from Home to Search, History, or Settings 
+  automatically pauses playback.
+- Returning to Home: Returning to Home automatically resumes video playback.
+- Search Auto-Keyboard: Entering Search automatically pops up the on-screen 
+  Leanback TV keyboard.
+
+--------------------------------------------------------------------------------
+6. MINIMAL, BLOAT-FREE UI & SETTINGS
+--------------------------------------------------------------------------------
+- Strip All SmartTube Bloat: Remove Shorts shelf, Trending, Kids Home, Gaming, 
+  News, Music, Sports, Live, Channels, Notifications, Playlists, Blocked Channels.
+- 4 Essential Sidebar Sections Only:
+    1. Home (continuous video feed)
+    2. Subscriptions (followed channels)
+    3. History (watch history)
+    4. Settings (essential options)
+- Streamlined Settings Menu (Normal Users Only):
+    1. Accounts (Sign in / Sign out with QR or code)
+    2. Video Player (Quality / Resolution presets)
+    3. Language & Country (Content region)
+    4. Subtitles (Language & styling)
+    5. Remote Control / Cast (Link TV code)
+    6. About YouTok (Clean app details)
+- Remove developer options, deep SponsorBlock settings, AFR toggles, and 
+  backup/restore menus.
+
+--------------------------------------------------------------------------------
+7. WATCH HISTORY MANAGEMENT
+--------------------------------------------------------------------------------
+- Clean vertical list layout for watched videos.
+- Single-Item Delete Button: Every item features an individual delete action 
+  with a trash can icon ("🗑️ Remove from history").
+- Delete All History with 10s Countdown: Selecting "Clear History" displays a 
+  confirmation dialog with a visible 10-second countdown before clearing, 
+  with a Cancel option to abort at any time.
+
+--------------------------------------------------------------------------------
+8. TIPS & SHORTCUTS (NO TOASTS, IN-MENU CAROUSEL)
+--------------------------------------------------------------------------------
+- No Floating Toasts: Completely remove on-screen toasts ("Press again to exit", 
+  "Hold to refresh", etc.).
+- In-Menu Tips Drawer: All tips are stored neatly inside the menu box.
+- Left/Right Carousel: Displays one tip at a time; pressing Left or Right on the 
+  remote switches to the previous or next tip cleanly.
+================================================================================

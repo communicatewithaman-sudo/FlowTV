@@ -71,8 +71,9 @@ public class PlayerUIController extends BasePlayerController {
             return;
         }
 
-        // Auto-hide UI overlay after timeout (even when paused) if dialog isn't shown
-        if (!getAppDialogPresenter().isDialogShown()) {
+        // Part 8.1: Never automatically hide the playback overlay while the video is paused.
+        // Auto-hide UI overlay after 3 seconds only while playing.
+        if (getPlayer().isPlaying() && !getAppDialogPresenter().isDialogShown()) {
             if (getPlayer().isControlsShown()) {
                 getPlayer().showOverlay(false);
                 mOverlayHideTimeMs = System.currentTimeMillis();
@@ -118,6 +119,19 @@ public class PlayerUIController extends BasePlayerController {
 
         if (shown) {
             enableUiAutoHideTimeout();
+        }
+    }
+
+    @Override
+    public void onPlay() {
+        enableUiAutoHideTimeout();
+    }
+
+    @Override
+    public void onPause() {
+        disableUiAutoHideTimeout();
+        if (getPlayer() != null) {
+            getPlayer().showOverlay(true);
         }
     }
 
@@ -730,22 +744,10 @@ public class PlayerUIController extends BasePlayerController {
         boolean controlsShown = getPlayer().isOverlayShown();
 
         if (KeyHelpers.isConfirmKey(keyCode) && !controlsShown) {
-            switch (getPlayerData().getOKButtonBehavior()) {
-                case PlayerData.OK_ONLY_UI:
-                    getPlayer().showOverlay(true);
-                    return true; // don't show ui
-                case PlayerData.OK_UI_AND_PAUSE:
-                    // NOP
-                    break;
-                case PlayerData.OK_ONLY_PAUSE:
-                    getPlayer().setPlayWhenReady(!getPlayer().getPlayWhenReady());
-                    return true; // don't show ui
-                case PlayerData.OK_TOGGLE_SPEED:
-                    getMainController().onButtonClicked(R.id.action_video_speed, getPlayer().getButtonState(R.id.action_video_speed));
-                    float speed = getPlayerData().getSpeed();
-                    MessageHelpers.showMessage(getContext(), String.format("%sx", speed));
-                    return true;
-            }
+            // Part 7.3: OK short press toggles Play / Pause directly
+            getPlayer().setPlayWhenReady(!getPlayer().getPlayWhenReady());
+            getPlayer().showOverlay(true);
+            return true;
         }
 
         return false;
@@ -787,40 +789,48 @@ public class PlayerUIController extends BasePlayerController {
     }
 
     private boolean handleLeftRightSkip(int keyCode) {
-        if (getPlayer() == null || getPlayer().isOverlayShown() || getVideo() == null ||
-                (getVideo().belongsToShortsGroup() && !getPlayerTweaksData().isQuickSkipShortsEnabled() ||
-                (!getVideo().belongsToShortsGroup() && !getPlayerTweaksData().isQuickSkipVideosEnabled()))) {
+        if (getPlayer() == null || getPlayer().isOverlayShown() || getVideo() == null) {
             return false;
         }
 
+        // Part 7.1 & 7.2: D-Pad LEFT / RIGHT seek backwards / forwards
+        long currentPos = getPlayer().getPositionMs();
+        long duration = getPlayer().getDurationMs();
+        long seekIncrement = 10_000L;
+
         if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-            getMainController().onNextClicked();
-            return true; // hide ui
+            long newPos = Math.min(duration > 0 ? duration : Long.MAX_VALUE, currentPos + seekIncrement);
+            getPlayer().setPositionMs(newPos);
+            getPlayer().showOverlay(true);
+            enableUiAutoHideTimeout();
+            return true;
         }
 
         if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-            getMainController().onPreviousClicked();
-            return true; // hide ui
+            long newPos = Math.max(0, currentPos - seekIncrement);
+            getPlayer().setPositionMs(newPos);
+            getPlayer().showOverlay(true);
+            enableUiAutoHideTimeout();
+            return true;
         }
 
         return false;
     }
 
     private boolean handleUpDownSkip(int keyCode) {
-        if (getPlayer() == null || getPlayer().isOverlayShown() || getVideo() == null
-                || (getVideo().belongsToShortsGroup() && !getPlayerTweaksData().isQuickSkipShortsAltEnabled()
-                    || (!getVideo().belongsToShortsGroup() && !getPlayerTweaksData().isQuickSkipVideosAltEnabled()))) {
+        if (getPlayer() == null || getPlayer().isOverlayShown() || getVideo() == null) {
             return false;
         }
 
+        // Part 3.2 & 7.1: D-Pad DOWN is Next video, D-Pad UP is Previous video (TikTok style)
         if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
             getMainController().onNextClicked();
-            return true; // hide ui
+            return true;
         }
 
         if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
             getMainController().onPreviousClicked();
-            return true; // hide ui
+            return true;
         }
 
         return false;

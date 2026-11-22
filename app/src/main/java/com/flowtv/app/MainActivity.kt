@@ -30,7 +30,7 @@ class MainActivity : AppCompatActivity() {
     private var player: ExoPlayer? = null
     private lateinit var dbHelper: HistoryDatabaseHelper
 
-    // Active Playback Feed (Home / Recommendations)
+    // Active Playback Feed (Home)
     private val videoFeed = mutableListOf<VideoItem>()
     private var currentFeedIndex = 0
 
@@ -38,8 +38,9 @@ class MainActivity : AppCompatActivity() {
     private val currentSearchFeed = mutableListOf<VideoItem>()
     private val currentHistoryFeed = mutableListOf<VideoItem>()
 
-    // Display & Clean Full-screen mode state
-    private var isCleanScreenMode = false // When true, HUD is hidden unless paused
+    // Navigation state
+    private var isSearchPlaybackMode = false // When true, pressing Back returns to Search shelf!
+    private var isCleanScreenMode = false    // When true, HUD is hidden unless paused
     private var isOkPressed = false
     private var okLongPressJob: Job? = null
     private var lastBackPressTime = 0L
@@ -103,7 +104,7 @@ class MainActivity : AppCompatActivity() {
 
                     override fun onPlayerError(error: PlaybackException) {
                         binding.topProgressBar.visibility = View.GONE
-                        showStatus("Skipping unavailable stream…")
+                        showStatus("Retrying next stream…")
                         handler.postDelayed({ playNextVideo() }, 1800)
                     }
                 })
@@ -114,16 +115,18 @@ class MainActivity : AppCompatActivity() {
     private fun setupUI() {
         // Shelf RecyclerView (Search & History)
         shelfAdapter = ShelfAdapter(emptyList()) { selectedVideo, position ->
-            // FIX: When clicking ANY video from Search or History, start playback with that exact queue!
-            closeAllOverlays()
             val isHistory = binding.tvShelfTitle.text.toString().contains("History")
-            val targetList = if (isHistory) currentHistoryFeed else currentSearchFeed
+            closeAllOverlays()
 
-            if (targetList.isNotEmpty()) {
-                val index = targetList.indexOfFirst { it.videoId == selectedVideo.videoId }.coerceAtLeast(0)
-                startNewFeed(targetList, index)
+            if (!isHistory) {
+                // User started playback from Search: mark search playback mode
+                isSearchPlaybackMode = true
+                val index = currentSearchFeed.indexOfFirst { it.videoId == selectedVideo.videoId }.coerceAtLeast(0)
+                startNewFeed(currentSearchFeed, index)
             } else {
-                startNewFeed(listOf(selectedVideo), 0)
+                isSearchPlaybackMode = false
+                val index = currentHistoryFeed.indexOfFirst { it.videoId == selectedVideo.videoId }.coerceAtLeast(0)
+                startNewFeed(currentHistoryFeed, index)
             }
         }
         binding.rvShelf.layoutManager =
@@ -188,7 +191,7 @@ class MainActivity : AppCompatActivity() {
             if (feed.isNotEmpty()) {
                 startNewFeed(feed, 0)
             } else {
-                showStatus("No videos returned, retrying…")
+                showStatus("Connecting to YouTube…")
                 handler.postDelayed({ loadRecommendedFeed() }, 3000)
             }
         }
@@ -240,8 +243,9 @@ class MainActivity : AppCompatActivity() {
                 player?.prepare()
                 player?.play()
 
+                // Smooth fade-in
                 binding.playerView.alpha = 0f
-                binding.playerView.animate().alpha(1f).setDuration(300).start()
+                binding.playerView.animate().alpha(1f).setDuration(280).start()
             } else {
                 showStatus("Stream unavailable, skipping…")
                 delay(1200)
@@ -345,28 +349,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ==========================================
-    // MENU DRAWER & VIDEO SHIFT / BLUR BACKGROUND
+    // MENU DRAWER & FLUID VIEW SLIDE ANIMATION
     // ==========================================
 
     private fun openMenu() {
-        val isAtHomeScreen = isHomeScreen()
         binding.menuDrawer.visibility = View.VISIBLE
 
-        if (isAtHomeScreen) {
-            // Home Screen: Shift video player smoothly to the left
-            binding.playerWrapper.animate()
-                .translationX(-130f)
-                .scaleX(0.88f)
-                .scaleY(0.88f)
-                .setDuration(240)
-                .start()
-            binding.blurOverlay.visibility = View.GONE
-        } else {
-            // Except Home Screen (e.g. Search / History): Apply frosted dark blur background
-            binding.blurOverlay.visibility = View.VISIBLE
-            binding.blurOverlay.alpha = 0f
-            binding.blurOverlay.animate().alpha(1f).setDuration(200).start()
-        }
+        // Smoothly slide and scale whichever view is currently active (Home, Search, or History)
+        binding.mainContentWrapper.animate()
+            .translationX(-160f)
+            .scaleX(0.88f)
+            .scaleY(0.88f)
+            .setDuration(240)
+            .start()
 
         binding.btnMenuSearch.requestFocus()
     }
@@ -374,9 +369,8 @@ class MainActivity : AppCompatActivity() {
     private fun closeMenu(): Boolean {
         if (binding.menuDrawer.isVisible) {
             binding.menuDrawer.visibility = View.GONE
-            binding.blurOverlay.visibility = View.GONE
 
-            binding.playerWrapper.animate()
+            binding.mainContentWrapper.animate()
                 .translationX(0f)
                 .scaleX(1.0f)
                 .scaleY(1.0f)
@@ -397,10 +391,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun performSearch(query: String) {
         if (query.isBlank()) return
+        binding.searchLoader.visibility = View.VISIBLE
         showStatus("Searching YouTube…")
         lifecycleScope.launch {
             val results = YouTubeExtractor.searchVideos(query)
             hideStatus()
+            binding.searchLoader.visibility = View.GONE
             currentSearchFeed.clear()
             currentSearchFeed.addAll(results)
             shelfAdapter.updateList(currentSearchFeed)
@@ -432,26 +428,11 @@ class MainActivity : AppCompatActivity() {
         return closed
     }
 
-    /**
-     * Home screen is defined as pure full-screen video playback with NO overlay open.
-     */
     private fun isHomeScreen(): Boolean {
         return !binding.menuDrawer.isVisible &&
                 !binding.shelfOverlay.isVisible &&
-                !binding.exitDialog.isVisible
-    }
-
-    private fun showStatus(message: String) {
-        binding.tvStatusMessage.text = message
-        binding.centerStatusPill.alpha = 0f
-        binding.centerStatusPill.visibility = View.VISIBLE
-        binding.centerStatusPill.animate().alpha(1f).setDuration(200).start()
-    }
-
-    private fun hideStatus() {
-        binding.centerStatusPill.animate().alpha(0f).setDuration(200).withEndAction {
-            binding.centerStatusPill.visibility = View.GONE
-        }.start()
+                !binding.exitDialog.isVisible &&
+                !isSearchPlaybackMode
     }
 
     private fun restartCurrentVideoWithQuality() {
@@ -489,18 +470,18 @@ class MainActivity : AppCompatActivity() {
                 isOkPressed = false
                 if (okLongPressJob?.isActive == true) {
                     okLongPressJob?.cancel()
-                    if (isHomeScreen()) {
+                    if (!binding.shelfOverlay.isVisible && !binding.menuDrawer.isVisible && !binding.exitDialog.isVisible) {
                         togglePlayPause()
                     }
                 }
             }
-            if (!isHomeScreen()) {
+            if (binding.shelfOverlay.isVisible || binding.menuDrawer.isVisible || binding.exitDialog.isVisible) {
                 return super.dispatchKeyEvent(event)
             }
             return true
         }
 
-        // 2. Menu button -> Opens Right-Side Centered Frosted Menu
+        // 2. Menu button -> Opens Right-Side Centered Frosted Menu (Slides mainContentWrapper to left)
         if (keyCode == KeyEvent.KEYCODE_MENU && event.action == KeyEvent.ACTION_DOWN) {
             if (binding.menuDrawer.isVisible) {
                 closeMenu()
@@ -510,8 +491,8 @@ class MainActivity : AppCompatActivity() {
             return true
         }
 
-        // 3. In-Video Remote Navigation (strictly when in home screen watching video)
-        if (isHomeScreen() && event.action == KeyEvent.ACTION_DOWN) {
+        // 3. In-Video Remote Navigation (when no overlays are showing)
+        if (!binding.shelfOverlay.isVisible && !binding.menuDrawer.isVisible && !binding.exitDialog.isVisible && event.action == KeyEvent.ACTION_DOWN) {
             when (keyCode) {
                 KeyEvent.KEYCODE_DPAD_DOWN -> {
                     playNextVideo()
@@ -534,34 +515,63 @@ class MainActivity : AppCompatActivity() {
 
         // 4. Back Key Handling
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            // A. If NOT in Home Screen (e.g. Menu, Search, History are open):
-            // Back simply closes that overlay and returns to Home. Never exits, never refreshes!
-            if (!isHomeScreen()) {
+            // Priority 1: If currently playing a video that was opened from Search -> Pressing Back MUST return to Search!
+            if (isSearchPlaybackMode) {
                 if (event.action == KeyEvent.ACTION_UP) {
-                    closeAllOverlays()
+                    isSearchPlaybackMode = false
+                    player?.pause()
+                    openSearchShelf()
                 }
                 return true
             }
 
-            // B. ONLY when in Home Screen:
-            if (event.action == KeyEvent.ACTION_DOWN) {
-                // Hold Back ONLY on Home Screen -> Refreshes feed
-                if (event.isLongPress) {
-                    showStatus("Refreshing Feed…")
-                    loadRecommendedFeed()
-                    return true
-                }
-            } else if (event.action == KeyEvent.ACTION_UP) {
-                // Double tap Back ONLY on Home Screen -> Opens Exit Dialog
-                val currentTime = System.currentTimeMillis()
-                if (currentTime - lastBackPressTime < 1800) {
-                    binding.exitDialog.visibility = View.VISIBLE
-                    binding.btnExitCancel.requestFocus()
-                } else {
-                    lastBackPressTime = currentTime
-                    Toast.makeText(this, getString(R.string.refresh_hint), Toast.LENGTH_SHORT).show()
+            // Priority 2: If Menu is open -> Close Menu
+            if (binding.menuDrawer.isVisible) {
+                if (event.action == KeyEvent.ACTION_UP) {
+                    closeMenu()
                 }
                 return true
+            }
+
+            // Priority 3: If Search or History shelf is open -> Pressing Back returns to Home Screen!
+            if (binding.shelfOverlay.isVisible) {
+                if (event.action == KeyEvent.ACTION_UP) {
+                    binding.shelfOverlay.visibility = View.GONE
+                    // Resume home video playback
+                    player?.play()
+                }
+                return true
+            }
+
+            // Priority 4: If Exit Dialog is open -> Close Exit Dialog
+            if (binding.exitDialog.isVisible) {
+                if (event.action == KeyEvent.ACTION_UP) {
+                    binding.exitDialog.visibility = View.GONE
+                }
+                return true
+            }
+
+            // Priority 5: ONLY ON HOME SCREEN
+            if (isHomeScreen()) {
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    // Hold Back ONLY on Home Screen -> Refreshes feed
+                    if (event.isLongPress) {
+                        showStatus("Refreshing Feed…")
+                        loadRecommendedFeed()
+                        return true
+                    }
+                } else if (event.action == KeyEvent.ACTION_UP) {
+                    // Double tap Back ONLY on Home Screen -> Opens Exit Dialog
+                    val currentTime = System.currentTimeMillis()
+                    if (currentTime - lastBackPressTime < 1800) {
+                        binding.exitDialog.visibility = View.VISIBLE
+                        binding.btnExitCancel.requestFocus()
+                    } else {
+                        lastBackPressTime = currentTime
+                        Toast.makeText(this, getString(R.string.refresh_hint), Toast.LENGTH_SHORT).show()
+                    }
+                    return true
+                }
             }
         }
 

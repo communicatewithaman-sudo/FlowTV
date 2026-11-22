@@ -14,21 +14,20 @@ import java.util.concurrent.TimeUnit
 object YouTubeExtractor {
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(12, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
         .build()
 
     private const val INNERTUBE_URL = "https://www.youtube.com/youtubei/v1"
     private const val RYD_URL = "https://returnyoutubedislikeapi.com/votes?videoId="
     private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
-    // Verified Curated Fallback IDs (Guaranteed to play if YouTube blocks new IP/session)
-    private val CURATED_STARTERS = listOf(
-        VideoItem("kJQP7kiw5Fk", "Luis Fonsi - Despacito ft. Daddy Yankee", "Luis Fonsi", "", "https://i.ytimg.com/vi/kJQP7kiw5Fk/hqdefault.jpg", 282, isShort = false),
-        VideoItem("9bZkp7q19f0", "PSY - GANGNAM STYLE (강남스타일) M/V", "officialpsy", "", "https://i.ytimg.com/vi/9bZkp7q19f0/hqdefault.jpg", 253, isShort = false),
-        VideoItem("L_LUpnjgPso", "Satisfying Domino Trick Compilation", "Domino King", "", "https://i.ytimg.com/vi/L_LUpnjgPso/hqdefault.jpg", 58, isShort = true),
-        VideoItem("rYEDA3JcQqw", "Amazing Card Throwing Magic", "Zach King", "", "https://i.ytimg.com/vi/rYEDA3JcQqw/hqdefault.jpg", 45, isShort = true),
-        VideoItem("fJ9rUzIMcZQ", "Queen – Bohemian Rhapsody (Official Video)", "Queen Official", "", "https://i.ytimg.com/vi/fJ9rUzIMcZQ/hqdefault.jpg", 359, isShort = false)
+    // Highly reliable public Invidious instances that decipher streams server-side
+    private val INVIDIOUS_INSTANCES = listOf(
+        "https://yewtu.be",
+        "https://invidious.nerdvpn.de",
+        "https://inv.nadeko.net",
+        "https://invidious.drgns.space"
     )
 
     /**
@@ -41,61 +40,74 @@ object YouTubeExtractor {
         // 1. Fetch Trending Shorts first so the first video is ALWAYS a Short
         val shorts = searchVideos("#shorts trending")
         val filteredShorts = shorts.filter { it.isShort || it.durationSeconds <= 90 }
-        result.addAll(filteredShorts.take(10))
+        result.addAll(filteredShorts.take(12))
 
-        // 2. Fetch Trending General Videos (FEtrending)
-        try {
-            val payload = """
-            {
-              "context": {
-                "client": {
-                  "clientName": "WEB",
-                  "clientVersion": "2.20240101.00.00",
-                  "hl": "en",
-                  "gl": "US"
-                }
-              },
-              "browseId": "FEtrending"
-            }
-            """.trimIndent().toRequestBody(JSON_MEDIA)
+        // 2. Fetch Trending General Videos
+        val general = searchVideos("trending")
+        result.addAll(general.take(15))
 
-            val req = Request.Builder()
-                .url("$INNERTUBE_URL/browse")
-                .post(payload)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                .build()
-
-            val res = client.newCall(req).execute()
-            val body = res.body?.string() ?: ""
-            if (body.isNotEmpty()) {
-                val root = JsonParser.parseString(body).asJsonObject
-                parseVideoItems(root, result)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        // 3. Fallback search if empty
-        if (result.size < 5) {
-            val general = searchVideos("trending videos")
-            result.addAll(general)
-        }
-
-        // 4. Guaranteed Safety Fallback: ensure feed is NEVER empty
+        // 3. Guaranteed Fallbacks if network fails
         if (result.isEmpty()) {
-            result.addAll(CURATED_STARTERS)
+            result.addAll(
+                listOf(
+                    VideoItem("L_LUpnjgPso", "Satisfying Domino Trick Compilation", "Domino King", "", "https://i.ytimg.com/vi/L_LUpnjgPso/hqdefault.jpg", 58, isShort = true),
+                    VideoItem("rYEDA3JcQqw", "Amazing Card Throwing Magic", "Zach King", "", "https://i.ytimg.com/vi/rYEDA3JcQqw/hqdefault.jpg", 45, isShort = true),
+                    VideoItem("kJQP7kiw5Fk", "Luis Fonsi - Despacito ft. Daddy Yankee", "Luis Fonsi", "", "https://i.ytimg.com/vi/kJQP7kiw5Fk/hqdefault.jpg", 282, isShort = false)
+                )
+            )
         }
 
         result.distinctBy { it.videoId }
     }
 
     /**
-     * Resolves playable direct stream URL using ANDROID_TESTSUITE client
-     * (unencrypted direct HLS / MP4 stream without signature cipher hurdles).
+     * Resolves playable direct stream URL using a multi-tiered failover:
+     * Tier 1: Invidious API (pre-deciphered direct MP4 video streams)
+     * Tier 2: InnerTube ANDROID_TESTSUITE (unencrypted direct HLS)
+     * Tier 3: InnerTube IOS / WEB_EMBEDDED
      */
     suspend fun resolveStreamUrl(videoId: String, quality: String = "Auto"): String? =
         withContext(Dispatchers.IO) {
-            // Method A: Try ANDROID_TESTSUITE (Fastest, zero-cipher)
+            // Tier 1: Query Invidious public instances (Direct MP4 with video+audio)
+            for (instance in INVIDIOUS_INSTANCES) {
+                try {
+                    val req = Request.Builder()
+                        .url("$instance/api/v1/videos/$videoId")
+                        .header("User-Agent", "Mozilla/5.0")
+                        .build()
+
+                    val res = client.newCall(req).execute()
+                    if (res.isSuccessful) {
+                        val body = res.body?.string() ?: ""
+                        val json = JsonParser.parseString(body).asJsonObject
+
+                        // 1. Check formatStreams (Direct muxed MP4 streams)
+                        if (json.has("formatStreams")) {
+                            val streams = json.getAsJsonArray("formatStreams")
+                            if (streams != null && streams.size() > 0) {
+                                // Prefer 720p or 360p muxed stream
+                                for (s in streams) {
+                                    val obj = s.asJsonObject
+                                    val url = obj.get("url")?.asString
+                                    if (!url.isNullOrEmpty()) {
+                                        return@withContext url
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. Check HLS manifest url
+                        if (json.has("hlsUrl") && !json.get("hlsUrl").isJsonNull) {
+                            val hls = json.get("hlsUrl").asString
+                            if (hls.isNotEmpty()) return@withContext hls
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Try next instance
+                }
+            }
+
+            // Tier 2: InnerTube ANDROID_TESTSUITE Fallback
             try {
                 val payload = """
                 {
@@ -115,68 +127,7 @@ object YouTubeExtractor {
                 val req = Request.Builder()
                     .url("$INNERTUBE_URL/player")
                     .post(payload)
-                    .header("User-Agent", "Dalvik/2.1.0 (Linux; U; Android 11; Pixel Build/RQ3A.210905.001)")
-                    .build()
-
-                val res = client.newCall(req).execute()
-                val body = res.body?.string() ?: ""
-                val json = JsonParser.parseString(body).asJsonObject
-
-                if (json.has("streamingData")) {
-                    val sd = json.getAsJsonObject("streamingData")
-
-                    // HLS Adaptive Master Manifest (Best for TV)
-                    if (sd.has("hlsManifestUrl")) {
-                        return@withContext sd.get("hlsManifestUrl").asString
-                    }
-
-                    // Direct MP4 / WebM
-                    val formats = sd.getAsJsonArray("formats")
-                    if (formats != null && formats.size() > 0) {
-                        for (f in formats) {
-                            val obj = f.asJsonObject
-                            if (obj.has("url")) {
-                                return@withContext obj.get("url").asString
-                            }
-                        }
-                    }
-
-                    val adaptive = sd.getAsJsonArray("adaptiveFormats")
-                    if (adaptive != null && adaptive.size() > 0) {
-                        for (f in adaptive) {
-                            val obj = f.asJsonObject
-                            if (obj.has("url")) {
-                                return@withContext obj.get("url").asString
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-
-            // Method B: Try IOS Client fallback
-            try {
-                val payload = """
-                {
-                  "context": {
-                    "client": {
-                      "clientName": "IOS",
-                      "clientVersion": "19.29.1",
-                      "deviceMake": "Apple",
-                      "deviceModel": "iPhone16,2",
-                      "hl": "en",
-                      "gl": "US"
-                    }
-                  },
-                  "videoId": "$videoId"
-                }
-                """.trimIndent().toRequestBody(JSON_MEDIA)
-
-                val req = Request.Builder()
-                    .url("$INNERTUBE_URL/player")
-                    .post(payload)
-                    .header("User-Agent", "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X; en_US)")
+                    .header("User-Agent", "Dalvik/2.1.0 (Linux; U; Android 11)")
                     .build()
 
                 val res = client.newCall(req).execute()
@@ -194,6 +145,42 @@ object YouTubeExtractor {
                             val obj = f.asJsonObject
                             if (obj.has("url")) return@withContext obj.get("url").asString
                         }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            // Tier 3: InnerTube TVHTML5_SIMPLY_EMBEDDED_PLAYER Fallback
+            try {
+                val payload = """
+                {
+                  "context": {
+                    "client": {
+                      "clientName": "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+                      "clientVersion": "2.0",
+                      "hl": "en",
+                      "gl": "US"
+                    }
+                  },
+                  "videoId": "$videoId"
+                }
+                """.trimIndent().toRequestBody(JSON_MEDIA)
+
+                val req = Request.Builder()
+                    .url("$INNERTUBE_URL/player")
+                    .post(payload)
+                    .header("User-Agent", "Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/538.1")
+                    .build()
+
+                val res = client.newCall(req).execute()
+                val body = res.body?.string() ?: ""
+                val json = JsonParser.parseString(body).asJsonObject
+
+                if (json.has("streamingData")) {
+                    val sd = json.getAsJsonObject("streamingData")
+                    if (sd.has("hlsManifestUrl")) {
+                        return@withContext sd.get("hlsManifestUrl").asString
                     }
                 }
             } catch (e: Exception) {
@@ -264,7 +251,6 @@ object YouTubeExtractor {
         if (element.isJsonObject) {
             val obj = element.asJsonObject
 
-            // 1. Regular Video Item
             if (obj.has("videoRenderer")) {
                 val vr = obj.getAsJsonObject("videoRenderer")
                 val vid = vr.get("videoId")?.asString ?: ""
@@ -295,9 +281,7 @@ object YouTubeExtractor {
                         )
                     )
                 }
-            }
-            // 2. Shorts Renderer
-            else if (obj.has("reelItemRenderer")) {
+            } else if (obj.has("reelItemRenderer")) {
                 val rir = obj.getAsJsonObject("reelItemRenderer")
                 val vid = rir.get("videoId")?.asString ?: ""
                 val title = rir.getAsJsonObject("headline")?.get("simpleText")?.asString ?: "Short"

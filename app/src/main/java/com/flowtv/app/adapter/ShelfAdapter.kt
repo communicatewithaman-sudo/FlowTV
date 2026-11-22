@@ -3,6 +3,7 @@ package com.flowtv.app.adapter
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.AnimationUtils
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
@@ -53,14 +54,22 @@ class ShelfAdapter(
             crossfade(true)
         }
 
-        // Apple TV style smooth focus animation
+        // Staggered card entry animation
+        holder.itemView.alpha = 0f
+        holder.itemView.translationY = 30f
+        holder.itemView.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setDuration(220)
+            .setStartDelay((position.coerceAtMost(8) * 40).toLong())
+            .start()
+
+        // Apple TV / GNOME style focus highlight and scaling
         holder.itemView.setOnFocusChangeListener { view, hasFocus ->
             if (hasFocus) {
-                view.animate().scaleX(1.06f).scaleY(1.06f).setDuration(180).start()
-                view.elevation = 8f
+                view.animate().scaleX(1.08f).scaleY(1.08f).translationZ(12f).setDuration(180).start()
             } else {
-                view.animate().scaleX(1.0f).scaleY(1.0f).setDuration(180).start()
-                view.elevation = 0f
+                view.animate().scaleX(1.0f).scaleY(1.0f).translationZ(0f).setDuration(180).start()
             }
         }
 

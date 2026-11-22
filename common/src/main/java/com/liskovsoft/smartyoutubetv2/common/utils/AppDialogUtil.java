@@ -1038,6 +1038,49 @@ public class AppDialogUtil {
         settingsPresenter.showDialog(title);
     }
 
+    /**
+     * YouTok: Show a countdown confirmation dialog before clearing history.
+     * Counts down from 10 seconds; user must press Cancel to abort or wait for auto-confirm.
+     */
+    public static void showClearHistoryCountdownDialog(Context context, String title, Runnable onConfirm) {
+        final int[] countdown = {10};
+        final AppDialogPresenter settingsPresenter = AppDialogPresenter.instance(context);
+        final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+
+        List<OptionItem> options = new ArrayList<>();
+        options.add(UiOptionItem.from(context.getString(R.string.cancel),
+                option -> {
+                    settingsPresenter.goBack();
+                    handler.removeCallbacksAndMessages(null);
+                }));
+
+        final String[] confirmLabel = {"Confirm (" + countdown[0] + "s)"};
+        final OptionItem confirmItem = UiOptionItem.from(confirmLabel[0], option -> {
+            handler.removeCallbacksAndMessages(null);
+            settingsPresenter.goBack();
+            onConfirm.run();
+        });
+        options.add(confirmItem);
+
+        settingsPresenter.appendStringsCategory(title, options);
+        settingsPresenter.showDialog(title, () -> handler.removeCallbacksAndMessages(null));
+
+        // Start countdown — auto-confirm after 10 seconds
+        Runnable countdownTask = new Runnable() {
+            @Override
+            public void run() {
+                countdown[0]--;
+                if (countdown[0] <= 0) {
+                    settingsPresenter.goBack();
+                    onConfirm.run();
+                } else {
+                    handler.postDelayed(this, 1_000);
+                }
+            }
+        };
+        handler.postDelayed(countdownTask, 1_000);
+    }
+
     public static void appendSeekIntervalDialogItems(Context context, AppDialogPresenter dialogPresenter, PlayerData playerData, boolean closeOnSelect) {
         List<OptionItem> options = new ArrayList<>();
 

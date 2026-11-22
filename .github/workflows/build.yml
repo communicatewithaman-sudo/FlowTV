@@ -1,4 +1,4 @@
-name: Build TikTube APK
+name: Build YouTok APK
 
 on:
   push:
@@ -28,20 +28,20 @@ jobs:
       - name: Grant Gradle permissions
         run: chmod +x gradlew
 
-      - name: Build Single Universal TikTube APK
+      - name: Build Single Universal YouTok APK
         run: ./gradlew assembleStbetaRelease --no-daemon --stacktrace
 
       - name: Prepare APK for Release
         run: |
           mkdir -p output
-          cp smarttubetv/build/outputs/apk/stbeta/release/*.apk output/TikTube.apk
+          cp smarttubetv/build/outputs/apk/stbeta/release/*.apk output/YouTok.apk
           ls -lh output/
 
       - name: Upload Single Universal APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TikTube-Universal
-          path: output/TikTube.apk
+          name: YouTok-Universal
+          path: output/YouTok.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -50,13 +50,16 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           tag_name: latest
-          name: "TikTube Universal (32-bit & 64-bit)"
+          name: "YouTok Universal (32-bit & 64-bit)"
           body: |
-            ### 📺 TikTube - Single Universal Android TV App
+            ### 📺 YouTok - Single Universal Android TV App
             - **Universal Architecture:** Runs natively on both 32-bit (armeabi-v7a) and 64-bit (arm64-v8a) Android TV boxes.
-            - **Direct Download:** Download `TikTube.apk` below and install directly without unzipping.
+            - **Direct Download:** Download `YouTok.apk` below and install directly without unzipping.
             - **Guaranteed Video Playback:** Uses SmartTube engine for live n-sig deciphering and PoToken attestation.
-            - **TikTube Theme:** Red branding (`#E50914`) with custom TV squircle launcher banner.
-          files: output/TikTube.apk
+            - **Minimal & Clean:** Streamlined UI with Home, Subscriptions, History, Settings and interactive Tips carousel.
+            - **Auto-Hide Overlay:** Controls and title appear on seek / play / pause and automatically hide after 3 seconds.
+            - **Auto-Pause:** Video pauses on exit dialog or navigating away from Home, and resumes on return.
+            - **Power Button Safe:** Holding the power button is safely consumed so playback is not interrupted.
+          files: output/YouTok.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

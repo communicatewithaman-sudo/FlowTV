@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.view.KeyEvent;
 
 import com.liskovsoft.sharedutils.mylogger.Log;
+import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.SearchPresenter;
 import com.liskovsoft.smartyoutubetv2.common.autoframerate.ModeSyncManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.GlobalKeyTranslator;
@@ -50,6 +51,12 @@ public abstract class LeanbackActivity extends MotherActivity {
     public boolean dispatchKeyEvent(KeyEvent event) {
         Log.d(TAG, event);
 
+        // YouTok: Consume KEYCODE_POWER long-press so it does nothing during playback
+        if (event.getKeyCode() == KeyEvent.KEYCODE_POWER
+                && (event.isLongPress() || event.getRepeatCount() > 0)) {
+            return true;
+        }
+
         KeyEvent newEvent = mGlobalKeyTranslator.translate(event);
         return super.dispatchKeyEvent(newEvent);
     }
@@ -76,12 +83,28 @@ public abstract class LeanbackActivity extends MotherActivity {
         mModeSyncManager.restore(this);
 
         getViewManager().addTop(this);
+
+        // YouTok: Resume playback when returning to the Browse (Home) activity
+        if (!(this instanceof PlaybackActivity) && !(this instanceof SearchTagsActivity)) {
+            PlaybackPresenter playback = PlaybackPresenter.instance(this);
+            if (playback != null && !playback.isPlaying()) {
+                playback.onPlayClicked();
+            }
+        }
     }
 
     @Override
     protected void onStop() {
         super.onStop();
         mBackgroundManager.onStop();
+
+        // YouTok: Pause playback when navigating away from the Browse (Home) activity
+        if (!(this instanceof PlaybackActivity) && !(this instanceof SearchTagsActivity)) {
+            PlaybackPresenter playback = PlaybackPresenter.instance(this);
+            if (playback != null && playback.isPlaying()) {
+                playback.onPauseClicked();
+            }
+        }
     }
 
     @Override
@@ -96,6 +119,8 @@ public abstract class LeanbackActivity extends MotherActivity {
         if (!getViewManager().hasParentView(this)) {
             switch (getGeneralData().getAppExitShortcut()) {
                 case GeneralData.EXIT_DOUBLE_BACK:
+                    // YouTok: Pause video when exit dialog is about to appear
+                    pausePlaybackForExitDialog();
                     mDoubleBackManager.enableDoubleBackExit(this::finishTheApp);
                     break;
                 case GeneralData.EXIT_SINGLE_BACK:
@@ -136,5 +161,16 @@ public abstract class LeanbackActivity extends MotherActivity {
         getViewManager().addOnFinish(sOnFinish);
 
         Utils.properlyFinishTheApp(this);
+    }
+
+    /**
+     * YouTok: Pause playback when the double-back exit dialog is first triggered.
+     * If user cancels (doesn't press back again), playback resumes on onResume().
+     */
+    private void pausePlaybackForExitDialog() {
+        PlaybackPresenter playback = PlaybackPresenter.instance(this);
+        if (playback != null && playback.isPlaying()) {
+            playback.onPauseClicked();
+        }
     }
 }

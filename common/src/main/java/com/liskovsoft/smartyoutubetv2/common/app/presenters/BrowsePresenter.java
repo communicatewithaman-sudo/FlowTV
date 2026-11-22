@@ -493,10 +493,27 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
     @Override
     public void onSectionFocused(int sectionId) {
         saveSelectedItems(); // save previous state
+        BrowseSection prevSection = mCurrentSection;
         mCurrentSection = findSectionById(sectionId);
         mCurrentVideo = null; // fast scroll through the sections (fix empty selected item)
         updateCurrentSection();
         restoreSelectedItems(); // Don't place anywhere else
+
+        // YouTok: Pause playback when navigating to History (a non-Home browsing page)
+        // and resume when returning to Home
+        if (mCurrentSection != null) {
+            PlaybackPresenter playback = PlaybackPresenter.instance(getContext());
+            if (playback != null) {
+                boolean isNowHome = mCurrentSection.getId() == MediaGroup.TYPE_HOME;
+                boolean wasHome = prevSection == null || prevSection.getId() == MediaGroup.TYPE_HOME;
+
+                if (!isNowHome && wasHome && playback.isPlaying()) {
+                    playback.onPauseClicked();
+                } else if (isNowHome && !wasHome && !playback.isPlaying()) {
+                    playback.onPlayClicked();
+                }
+            }
+        }
     }
 
     @Override

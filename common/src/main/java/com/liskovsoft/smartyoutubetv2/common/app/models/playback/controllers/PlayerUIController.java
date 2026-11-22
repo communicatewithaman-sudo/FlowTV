@@ -71,15 +71,12 @@ public class PlayerUIController extends BasePlayerController {
             return;
         }
 
-        // Playing the video and dialog overlay isn't shown
-        if (getPlayer().isPlaying() && !getAppDialogPresenter().isDialogShown()) {
-            if (getPlayer().isControlsShown()) { // don't hide when suggestions is shown
+        // Auto-hide UI overlay after timeout (even when paused) if dialog isn't shown
+        if (!getAppDialogPresenter().isDialogShown()) {
+            if (getPlayer().isControlsShown()) {
                 getPlayer().showOverlay(false);
                 mOverlayHideTimeMs = System.currentTimeMillis();
             }
-        } else {
-            // in seeking state? doing recheck...
-            enableUiAutoHideTimeout();
         }
     };
     private final Runnable mSetSubtitleButtonState = this::setSubtitleButtonState;
@@ -309,6 +306,7 @@ public class PlayerUIController extends BasePlayerController {
         }
 
         getPlayer().updateEndingTime();
+        enableUiAutoHideTimeout();
     }
 
     @Override

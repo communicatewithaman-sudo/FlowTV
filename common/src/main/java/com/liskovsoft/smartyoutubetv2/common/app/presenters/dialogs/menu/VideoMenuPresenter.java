@@ -498,7 +498,7 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
         RxHelper.disposeActions(mNotInterestedAction);
 
         mDialogPresenter.appendSingleButton(
-                UiOptionItem.from(getContext().getString(R.string.remove_from_history), optionItem -> {
+                UiOptionItem.from("🗑️ " + getContext().getString(R.string.remove_from_history), optionItem -> {
                     if (mVideo.mediaItem == null || mVideo.mediaItem.getFeedbackToken() == null) {
                         onRemoveFromHistoryDone();
                     } else {

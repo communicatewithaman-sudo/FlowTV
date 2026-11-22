@@ -2,9 +2,6 @@ package com.liskovsoft.smartyoutubetv2.tv.ui.common.keyhandler;
 
 import android.content.Context;
 
-import com.liskovsoft.sharedutils.helpers.MessageHelpers;
-import com.liskovsoft.smartyoutubetv2.tv.R;
-
 public class DoubleBackManager2 {
     private static final String TAG = DoubleBackManager2.class.getSimpleName();
     private static final int DEFAULT_REPEAT_COUNT = 2;
@@ -27,17 +24,13 @@ public class DoubleBackManager2 {
         // same event fires multiple times
         boolean isDoubleBackPressed = mRepeatCount >= DEFAULT_REPEAT_COUNT;
 
-        showMsg();
+        // YouTok: No toast shown here — tips are shown inside the menu instead
+        if (mRepeatCount == (DEFAULT_REPEAT_COUNT - 1)) {
+            mMsgShownTimeMs = System.currentTimeMillis();
+        }
 
         if (isDoubleBackPressed) {
             onDoubleBack.run();
-        }
-    }
-
-    private void showMsg() {
-        if (mRepeatCount == (DEFAULT_REPEAT_COUNT - 1)) {
-            MessageHelpers.showMessage(mContext, R.string.msg_press_again_to_exit);
-            mMsgShownTimeMs = System.currentTimeMillis();
         }
     }
 

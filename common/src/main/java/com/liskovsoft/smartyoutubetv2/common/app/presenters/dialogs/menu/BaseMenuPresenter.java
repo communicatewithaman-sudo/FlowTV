@@ -496,7 +496,7 @@ public abstract class BaseMenuPresenter extends BasePresenter<Void> {
 
         getDialogPresenter().appendSingleButton(
                 UiOptionItem.from(getContext().getString(R.string.clear_history),
-                        optionItem -> AppDialogUtil.showConfirmationDialog(getContext(),
+                        optionItem -> AppDialogUtil.showClearHistoryCountdownDialog(getContext(),
                                 getContext().getString(R.string.clear_history), () -> {
                                     mServiceManager.clearHistory(getContext(), () -> {
                                         getDialogPresenter().closeDialog();

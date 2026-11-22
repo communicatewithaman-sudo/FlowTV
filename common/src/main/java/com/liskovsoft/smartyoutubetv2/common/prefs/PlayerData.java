@@ -154,7 +154,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
     }
 
     public int getUiHideTimeoutSec() {
-        return mUiHideTimeoutSec;
+        return 3; // Enforce single video view mode: title & controls auto-hide after 3 seconds
     }
 
     public void setUiHideTimeoutSec(int timeoutSec) {

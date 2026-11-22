@@ -257,14 +257,15 @@ public class SidebarService implements ProfileChangeListener {
     }
 
     private void initPinnedItems() {
+        // YouTok: Only show essential sections — Home, Subscriptions, History, Settings
         for (int sectionId : mDefaultSections.values()) {
-            // Hidden sections
-            enableSection(sectionId, !Helpers.equalsAny(sectionId, new int[] {
-                    MediaGroup.TYPE_NOTIFICATIONS,
-                    MediaGroup.TYPE_PLAYBACK_QUEUE,
-                    MediaGroup.TYPE_TRENDING,
-                    MediaGroup.TYPE_BLOCKED_CHANNELS
-            }));
+            boolean isAllowed = Helpers.equalsAny(sectionId, new int[] {
+                    MediaGroup.TYPE_HOME,
+                    MediaGroup.TYPE_SUBSCRIPTIONS,
+                    MediaGroup.TYPE_HISTORY,
+                    MediaGroup.TYPE_SETTINGS
+            });
+            enableSection(sectionId, isAllowed);
         }
     }
 
@@ -305,7 +306,29 @@ public class SidebarService implements ProfileChangeListener {
         // Backward compatibility
         enableSection(MediaGroup.TYPE_SETTINGS, true);
 
+        // YouTok: Enforce only allowed sections — remove any extras from persisted state
+        enforceAllowedSections();
+
         cleanupPinnedItems();
+    }
+
+    /**
+     * YouTok: Remove any pinned sections that are not in the allowed list.
+     * This handles old persisted prefs that might have more sections than we want.
+     */
+    private void enforceAllowedSections() {
+        int[] allowedIds = new int[] {
+                MediaGroup.TYPE_HOME,
+                MediaGroup.TYPE_SUBSCRIPTIONS,
+                MediaGroup.TYPE_HISTORY,
+                MediaGroup.TYPE_SETTINGS
+        };
+        Helpers.removeIf(mPinnedItems, item -> {
+            if (item == null || item.sectionId == -1) {
+                return false; // keep pinned channels/playlists
+            }
+            return !Helpers.equalsAny(item.sectionId, allowedIds);
+        });
     }
 
     private void transferOldPinnedItems() {

@@ -7,17 +7,23 @@
     android:layout_height="match_parent"
     android:background="@color/black">
 
-    <!-- 1. FULL-SCREEN EXOPLAYER -->
-    <androidx.media3.ui.PlayerView
-        android:id="@+id/playerView"
+    <!-- 1. VIDEO PLAYER WRAPPER (Slides to left when Menu opens) -->
+    <FrameLayout
+        android:id="@+id/playerWrapper"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@color/black"
-        app:use_controller="false"
-        app:surface_type="surface_view"
-        app:resize_mode="fit" />
+        android:layout_height="match_parent">
 
-    <!-- 2. TOP HAIRLINE LOADING BAR (Safari/GNOME style) -->
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/playerView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/black"
+            app:use_controller="false"
+            app:surface_type="surface_view"
+            app:resize_mode="fit" />
+    </FrameLayout>
+
+    <!-- 2. TOP HAIRLINE ANIMATED LOADING BAR -->
     <ProgressBar
         android:id="@+id/topProgressBar"
         style="?android:attr/progressBarStyleHorizontal"
@@ -25,68 +31,147 @@
         android:layout_height="3dp"
         android:layout_gravity="top"
         android:indeterminate="true"
+        android:indeterminateTint="@color/accent_blue"
         android:visibility="gone"
-        android:indeterminateTint="@color/accent_blue" />
+        tools:visibility="visible" />
 
-    <!-- 3. NOW PLAYING PILL (Fades after 3s) -->
+    <!-- 3. CENTER STATUS PILL (Shows "Loading next video...", "Searching...", etc.) -->
     <LinearLayout
-        android:id="@+id/nowPlayingPill"
+        android:id="@+id/centerStatusPill"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom|start"
-        android:layout_marginStart="32dp"
-        android:layout_marginBottom="32dp"
+        android:layout_gravity="center"
         android:background="@drawable/bg_now_playing_pill"
+        android:gravity="center"
         android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingTop="10dp"
-        android:paddingEnd="16dp"
-        android:paddingBottom="10dp"
-        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingTop="12dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="12dp"
         android:visibility="gone"
         tools:visibility="visible">
 
+        <ProgressBar
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:indeterminateTint="@color/accent_blue" />
+
         <TextView
-            android:id="@+id/tvNowPlayingTitle"
+            android:id="@+id/tvStatusMessage"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:maxWidth="400dp"
-            android:singleLine="true"
-            android:ellipsize="end"
+            android:layout_marginStart="12dp"
             android:textColor="@color/text_primary"
             android:textSize="14sp"
             android:textStyle="bold"
-            tools:text="How to Build an Engine" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=" • "
-            android:textColor="@color/text_secondary"
-            android:textSize="13sp" />
-
-        <TextView
-            android:id="@+id/tvNowPlayingChannel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:maxWidth="200dp"
-            android:singleLine="true"
-            android:ellipsize="end"
-            android:textColor="@color/text_secondary"
-            android:textSize="13sp"
-            tools:text="Garage Tinkering" />
+            tools:text="Loading next video…" />
     </LinearLayout>
 
-    <!-- 4. BOTTOM HAIRLINE SEEK BAR OVERLAY (Appears during Left/Right scrub) -->
+    <!-- 4. BOTTOM HUD (ALWAYS VISIBLE IN NORMAL MODE) -->
+    <LinearLayout
+        android:id="@+id/bottomHUD"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="#CC000000"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="36dp"
+        android:paddingTop="14dp"
+        android:paddingEnd="36dp"
+        android:paddingBottom="14dp">
+
+        <!-- Left: Title, Channel & Like/Dislike Stats -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tvBottomTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="marquee"
+                android:singleLine="true"
+                android:textColor="@color/text_primary"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                tools:text="Satisfying Domino Trick Compilation" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tvBottomChannel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"
+                    tools:text="Domino King" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="   •   "
+                    android:textColor="@color/text_muted"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/tvBottomLikes"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="👍 48K"
+                    android:textColor="@color/text_primary"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="   "
+                    android:textColor="@color/text_muted" />
+
+                <TextView
+                    android:id="@+id/tvBottomDislikes"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="👎 312"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Right: Time Pill (Always Visible in Normal Mode) -->
+        <TextView
+            android:id="@+id/tvBottomTimePill"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="24dp"
+            android:background="@drawable/bg_now_playing_pill"
+            android:paddingStart="12dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="6dp"
+            android:textColor="@color/text_primary"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            tools:text="00:24 / 00:58" />
+    </LinearLayout>
+
+    <!-- 5. BOTTOM HAIRLINE SEEK PROGRESS BAR OVERLAY (Appears on Left/Right Scrub) -->
     <LinearLayout
         android:id="@+id/scrubOverlay"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
+        android:layout_marginBottom="65dp"
         android:orientation="vertical"
         android:paddingStart="40dp"
         android:paddingEnd="40dp"
-        android:paddingBottom="24dp"
         android:visibility="gone"
         tools:visibility="visible">
 
@@ -95,11 +180,11 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
-            android:layout_marginBottom="8dp"
+            android:layout_marginBottom="6dp"
             android:textColor="@color/text_primary"
-            android:textSize="14sp"
+            android:textSize="13sp"
             android:textStyle="bold"
-            tools:text="+10s   05:14 / 20:30" />
+            tools:text="+10s   00:20 / 00:58" />
 
         <ProgressBar
             android:id="@+id/scrubProgressBar"
@@ -110,24 +195,26 @@
             android:progressDrawable="@drawable/seek_progress_drawable" />
     </LinearLayout>
 
-    <!-- 5. RIGHT-SIDE FROSTED MENU (Hold OK or Press Menu) -->
+    <!-- 6. RIGHT-SIDE VERTICALLY CENTERED FROSTED MENU (Press Menu Button) -->
     <LinearLayout
         android:id="@+id/menuDrawer"
-        android:layout_width="340dp"
-        android:layout_height="match_parent"
-        android:layout_gravity="end"
+        android:layout_width="320dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|center_vertical"
+        android:layout_marginEnd="32dp"
         android:background="@drawable/bg_frosted_panel"
+        android:elevation="12dp"
         android:orientation="vertical"
-        android:padding="24dp"
+        android:padding="20dp"
         android:visibility="gone"
         tools:visibility="visible">
 
-        <!-- 1. Search Button -->
+        <!-- 1. Search -->
         <TextView
             android:id="@+id/btnMenuSearch"
             android:layout_width="match_parent"
             android:layout_height="48dp"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="10dp"
             android:background="@drawable/bg_pill_button"
             android:focusable="true"
             android:gravity="center_vertical"
@@ -143,7 +230,7 @@
             android:id="@+id/btnMenuQuality"
             android:layout_width="match_parent"
             android:layout_height="48dp"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="10dp"
             android:background="@drawable/bg_pill_button"
             android:focusable="true"
             android:gravity="center_vertical"
@@ -151,14 +238,14 @@
             android:paddingEnd="20dp"
             android:text="⚙️   Quality: Auto"
             android:textColor="@color/text_primary"
-            android:textSize="15sp" />
+            android:textSize="14sp" />
 
         <!-- 3. Subtitles Toggle -->
         <TextView
             android:id="@+id/btnMenuSubtitles"
             android:layout_width="match_parent"
             android:layout_height="48dp"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="10dp"
             android:background="@drawable/bg_pill_button"
             android:focusable="true"
             android:gravity="center_vertical"
@@ -166,14 +253,14 @@
             android:paddingEnd="20dp"
             android:text="💬   Subtitles: Off"
             android:textColor="@color/text_primary"
-            android:textSize="15sp" />
+            android:textSize="14sp" />
 
-        <!-- 4. History Button -->
+        <!-- 4. History -->
         <TextView
             android:id="@+id/btnMenuHistory"
             android:layout_width="match_parent"
             android:layout_height="48dp"
-            android:layout_marginBottom="20dp"
+            android:layout_marginBottom="10dp"
             android:background="@drawable/bg_pill_button"
             android:focusable="true"
             android:gravity="center_vertical"
@@ -181,163 +268,22 @@
             android:paddingEnd="20dp"
             android:text="🕒   History"
             android:textColor="@color/text_primary"
-            android:textSize="15sp" />
+            android:textSize="14sp" />
 
-        <!-- 5. Interactive Info Card (Click to open Description & Comments) -->
-        <LinearLayout
-            android:id="@+id/cardVideoInfo"
+        <!-- 5. Exit App -->
+        <TextView
+            android:id="@+id/btnMenuExit"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/bg_frosted_card"
+            android:layout_height="48dp"
+            android:background="@drawable/bg_pill_button"
             android:focusable="true"
-            android:orientation="vertical"
-            android:padding="16dp">
-
-            <TextView
-                android:id="@+id/tvMenuVideoTitle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="2"
-                android:textColor="@color/text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                tools:text="Incredible High-Speed Rail Project Around the Globe" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/tvMenuChannelName"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:singleLine="true"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp"
-                    tools:text="Mega Engineering" />
-
-                <!-- "View Channel" Pill -->
-                <TextView
-                    android:id="@+id/btnViewChannel"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/bg_pill_button"
-                    android:focusable="true"
-                    android:paddingStart="8dp"
-                    android:paddingTop="3dp"
-                    android:paddingEnd="8dp"
-                    android:paddingBottom="3dp"
-                    android:text="View Channel"
-                    android:textColor="@color/accent_blue"
-                    android:textSize="11sp" />
-            </LinearLayout>
-
-            <!-- Likes / Dislikes / Comments Stats Row -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/tvLikesCount"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="👍 48K"
-                    android:textColor="@color/text_primary"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:id="@+id/tvDislikesCount"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="👎 320"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:id="@+id/tvCommentsCount"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="💬 1.4K"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp" />
-            </LinearLayout>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginTop="10dp"
-                android:text="Tap to view Description &amp; Comments"
-                android:textColor="@color/text_muted"
-                android:textSize="11sp" />
-        </LinearLayout>
-    </LinearLayout>
-
-    <!-- 6. DESCRIPTION & COMMENTS DRAWER (Opens when Info Card is clicked) -->
-    <LinearLayout
-        android:id="@+id/commentsDrawer"
-        android:layout_width="480dp"
-        android:layout_height="match_parent"
-        android:layout_gravity="end"
-        android:background="@drawable/bg_frosted_panel"
-        android:orientation="vertical"
-        android:padding="24dp"
-        android:visibility="gone"
-        tools:visibility="gone">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Description &amp; Comments"
-            android:textColor="@color/text_primary"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tvFullDescription"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:layout_marginBottom="16dp"
-            android:maxLines="5"
-            android:scrollbars="vertical"
-            android:textColor="@color/text_secondary"
-            android:textSize="13sp"
-            tools:text="In this video we explore how modern high-speed trains operate..." />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="@color/card_border" />
-
-        <TextView
-            android:id="@+id/tvCommentsHeader"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:layout_marginBottom="8dp"
-            android:text="Top Comments"
-            android:textColor="@color/text_primary"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:text="🚪   Exit App"
+            android:textColor="#FF453A"
             android:textSize="14sp"
             android:textStyle="bold" />
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rvComments"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
     </LinearLayout>
 
     <!-- 7. SEARCH / HISTORY SHELF OVERLAY -->
@@ -345,13 +291,13 @@
         android:id="@+id/shelfOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#E6000000"
+        android:background="#EB000000"
         android:orientation="vertical"
         android:padding="36dp"
         android:visibility="gone"
         tools:visibility="gone">
 
-        <!-- Search Bar Header (Only visible during Search) -->
+        <!-- Search Bar Header -->
         <LinearLayout
             android:id="@+id/searchHeader"
             android:layout_width="match_parent"
@@ -373,7 +319,7 @@
                 android:paddingEnd="20dp"
                 android:textColor="@color/text_primary"
                 android:textColorHint="@color/text_muted"
-                android:textSize="16sp" />
+                android:textSize="15sp" />
 
             <TextView
                 android:id="@+id/btnSubmitSearch"
@@ -391,7 +337,7 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- Shelf Title (e.g. "Watch History" or "Search Results") -->
+        <!-- Shelf Title -->
         <TextView
             android:id="@+id/tvShelfTitle"
             android:layout_width="wrap_content"

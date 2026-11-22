@@ -15,7 +15,6 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.flowtv.app.adapter.CommentsAdapter
 import com.flowtv.app.adapter.ShelfAdapter
 import com.flowtv.app.data.HistoryDatabaseHelper
 import com.flowtv.app.databinding.ActivityMainBinding
@@ -35,22 +34,22 @@ class MainActivity : AppCompatActivity() {
     private val videoFeed = mutableListOf<VideoItem>()
     private var currentFeedIndex = 0
 
-    // Remote navigation & double-tap state
-    private var lastBackPressTime = 0L
-    private val handler = Looper.myLooper()?.let { Handler(it) } ?: Handler(Looper.getMainLooper())
-    private var scrubHideRunnable: Runnable? = null
-    private var nowPlayingHideRunnable: Runnable? = null
-    private var okLongPressJob: Job? = null
+    // Display & Clean Full-screen mode state
+    private var isCleanScreenMode = false // When true, HUD is hidden unless paused
     private var isOkPressed = false
+    private var okLongPressJob: Job? = null
+    private var lastBackPressTime = 0L
 
-    // Quality & Subtitles settings
+    private val handler = Handler(Looper.getMainLooper())
+    private var timeUpdateRunnable: Runnable? = null
+    private var scrubHideRunnable: Runnable? = null
+
+    // Settings
     private val qualityOptions = listOf("Auto", "720p", "1080p")
     private var qualityIndex = 0
     private var subtitlesEnabled = false
 
-    // Adapters
     private lateinit var shelfAdapter: ShelfAdapter
-    private lateinit var commentsAdapter: CommentsAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,6 +62,7 @@ class MainActivity : AppCompatActivity() {
 
         initPlayer()
         setupUI()
+        startTimeTracker()
         loadRecommendedFeed()
     }
 
@@ -75,21 +75,33 @@ class MainActivity : AppCompatActivity() {
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         when (playbackState) {
-                            Player.STATE_BUFFERING -> binding.topProgressBar.visibility = View.VISIBLE
+                            Player.STATE_BUFFERING -> {
+                                binding.topProgressBar.visibility = View.VISIBLE
+                                showStatus("Buffering video…")
+                            }
                             Player.STATE_READY -> {
                                 binding.topProgressBar.visibility = View.GONE
-                                updateScrubBar()
+                                hideStatus()
+                                updateBottomHUDVisibility()
                                 saveWatchHistory()
                             }
                             Player.STATE_ENDED -> playNextVideo()
-                            Player.STATE_IDLE -> binding.topProgressBar.visibility = View.GONE
+                            Player.STATE_IDLE -> {
+                                binding.topProgressBar.visibility = View.GONE
+                                hideStatus()
+                            }
                         }
                     }
 
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        // In clean screen mode: show HUD only when paused!
+                        updateBottomHUDVisibility()
+                    }
+
                     override fun onPlayerError(error: PlaybackException) {
-                        // Point 4: Auto-skip forward on error within 5 seconds without freezing
                         binding.topProgressBar.visibility = View.GONE
-                        handler.postDelayed({ playNextVideo() }, 2000)
+                        showStatus("Skipping unavailable stream…")
+                        handler.postDelayed({ playNextVideo() }, 1800)
                     }
                 })
             }
@@ -99,7 +111,6 @@ class MainActivity : AppCompatActivity() {
     private fun setupUI() {
         // Shelf RecyclerView (Search & History)
         shelfAdapter = ShelfAdapter(emptyList()) { video, _ ->
-            // Click video from shelf: start full-screen playback with that queue!
             closeAllOverlays()
             val list = if (binding.tvShelfTitle.text.toString().contains("History")) {
                 dbHelper.getHistory()
@@ -112,14 +123,9 @@ class MainActivity : AppCompatActivity() {
             LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         binding.rvShelf.adapter = shelfAdapter
 
-        // Comments RecyclerView
-        commentsAdapter = CommentsAdapter(emptyList())
-        binding.rvComments.layoutManager = LinearLayoutManager(this)
-        binding.rvComments.adapter = commentsAdapter
-
         // Menu Button: Search
         binding.btnMenuSearch.setOnClickListener {
-            binding.menuDrawer.visibility = View.GONE
+            closeMenu()
             openSearchShelf()
         }
 
@@ -134,26 +140,19 @@ class MainActivity : AppCompatActivity() {
         // Menu Button: Subtitles
         binding.btnMenuSubtitles.setOnClickListener {
             subtitlesEnabled = !subtitlesEnabled
-            binding.btnMenuSubtitles.text = if (subtitlesEnabled) "💬   Subtitles: English" else "💬   Subtitles: Off"
+            binding.btnMenuSubtitles.text =
+                if (subtitlesEnabled) "💬   Subtitles: English" else "💬   Subtitles: Off"
         }
 
         // Menu Button: History
         binding.btnMenuHistory.setOnClickListener {
-            binding.menuDrawer.visibility = View.GONE
+            closeMenu()
             openHistoryShelf()
         }
 
-        // Menu Card: Info Card -> Click opens Description & Comments
-        binding.cardVideoInfo.setOnClickListener {
-            binding.menuDrawer.visibility = View.GONE
-            openCommentsDrawer()
-        }
-
-        // Menu Card: "View Channel" Pill -> Dive into creator's videos
-        binding.btnViewChannel.setOnClickListener {
-            val current = getCurrentVideo() ?: return@setOnClickListener
-            binding.menuDrawer.visibility = View.GONE
-            diveIntoChannel(current.channelId)
+        // Menu Button: Exit App
+        binding.btnMenuExit.setOnClickListener {
+            finish()
         }
 
         // Search Submit Button
@@ -175,13 +174,15 @@ class MainActivity : AppCompatActivity() {
     // ==========================================
 
     private fun loadRecommendedFeed() {
+        showStatus("Loading trending shorts…")
         binding.topProgressBar.visibility = View.VISIBLE
         lifecycleScope.launch {
             val feed = YouTubeExtractor.getRecommendedFeed()
             if (feed.isNotEmpty()) {
                 startNewFeed(feed, 0)
             } else {
-                Toast.makeText(this@MainActivity, "Fetching videos...", Toast.LENGTH_SHORT).show()
+                showStatus("No videos returned, retrying…")
+                handler.postDelayed({ loadRecommendedFeed() }, 3000)
             }
         }
     }
@@ -190,20 +191,37 @@ class MainActivity : AppCompatActivity() {
         videoFeed.clear()
         videoFeed.addAll(newFeed)
         currentFeedIndex = startIndex.coerceIn(0, (videoFeed.size - 1).coerceAtLeast(0))
+        // Always reset to normal mode when changing/starting feed
+        isCleanScreenMode = false
         playCurrentVideo()
     }
 
     private fun playCurrentVideo() {
         val video = getCurrentVideo() ?: return
 
-        // 1. Show 3-second Now Playing pill (Apple-style HUD)
-        showNowPlayingPill(video)
+        // 1. Reset to Normal mode for every video (HUD always visible by default)
+        isCleanScreenMode = false
+        updateBottomHUDVisibility()
 
-        // 2. Fetch live likes, dislikes, and comments stats
-        updateMenuStats(video)
+        // 2. Populate Bottom HUD metadata
+        binding.tvBottomTitle.text = video.title
+        binding.tvBottomChannel.text = video.channelTitle
+        binding.tvBottomLikes.text = "👍 " + video.likes
+        binding.tvBottomDislikes.text = "👎 " + video.dislikes
 
-        // 3. Resolve stream URL and play
+        // 3. Fetch live ReturnYouTubeDislike stats
+        lifecycleScope.launch {
+            val (likes, dislikes) = YouTubeExtractor.getLikesAndDislikes(video.videoId)
+            video.likes = likes
+            video.dislikes = dislikes
+            binding.tvBottomLikes.text = "👍 $likes"
+            binding.tvBottomDislikes.text = "👎 $dislikes"
+        }
+
+        // 4. Resolve stream URL with animated feedback
+        showStatus("Playing ${if (video.isShort) "Short" else "Video"}…")
         binding.topProgressBar.visibility = View.VISIBLE
+
         lifecycleScope.launch {
             val streamUrl = video.streamUrl ?: YouTubeExtractor.resolveStreamUrl(
                 video.videoId,
@@ -219,24 +237,31 @@ class MainActivity : AppCompatActivity() {
                 }
                 player?.prepare()
                 player?.play()
+
+                // Smooth video appearance animation
+                binding.playerView.alpha = 0f
+                binding.playerView.animate().alpha(1f).setDuration(300).start()
             } else {
-                // If stream failed, auto-skip
+                showStatus("Stream unavailable, skipping…")
+                delay(1200)
                 playNextVideo()
             }
         }
     }
 
     private fun playNextVideo() {
+        // As requested: Each video always loads in normal mode (HUD visible)
+        isCleanScreenMode = false
         if (currentFeedIndex < videoFeed.size - 1) {
             currentFeedIndex++
             playCurrentVideo()
         } else {
-            // End of feed -> refresh
             loadRecommendedFeed()
         }
     }
 
     private fun playPreviousVideo() {
+        isCleanScreenMode = false
         if (currentFeedIndex > 0) {
             currentFeedIndex--
             playCurrentVideo()
@@ -249,37 +274,55 @@ class MainActivity : AppCompatActivity() {
         } else null
     }
 
-    private fun showNowPlayingPill(video: VideoItem) {
-        binding.tvNowPlayingTitle.text = video.title
-        binding.tvNowPlayingChannel.text = video.channelTitle
-        binding.nowPlayingPill.alpha = 1.0f
-        binding.nowPlayingPill.visibility = View.VISIBLE
+    // ==========================================
+    // TIME TRACKER & BOTTOM HUD
+    // ==========================================
 
-        nowPlayingHideRunnable?.let { handler.removeCallbacks(it) }
-        nowPlayingHideRunnable = Runnable {
-            binding.nowPlayingPill.animate().alpha(0f).setDuration(400).withEndAction {
-                binding.nowPlayingPill.visibility = View.GONE
-            }.start()
+    private fun startTimeTracker() {
+        timeUpdateRunnable = object : Runnable {
+            override fun run() {
+                val p = player
+                if (p != null && p.playbackState == Player.STATE_READY) {
+                    val cur = p.currentPosition
+                    val dur = p.duration.coerceAtLeast(0)
+                    val curM = (cur / 1000) / 60
+                    val curS = (cur / 1000) % 60
+                    val durM = (dur / 1000) / 60
+                    val durS = (dur / 1000) % 60
+                    binding.tvBottomTimePill.text =
+                        String.format("%02d:%02d / %02d:%02d", curM, curS, durM, durS)
+
+                    if (dur > 0) {
+                        binding.scrubProgressBar.progress =
+                            ((cur.toFloat() / dur) * 1000).toInt()
+                    }
+                }
+                handler.postDelayed(this, 500)
+            }
         }
-        handler.postDelayed(nowPlayingHideRunnable!!, 3000)
+        handler.post(timeUpdateRunnable!!)
     }
 
-    private fun updateMenuStats(video: VideoItem) {
-        binding.tvMenuVideoTitle.text = video.title
-        binding.tvMenuChannelName.text = video.channelTitle
-
-        lifecycleScope.launch {
-            val (likes, dislikes) = YouTubeExtractor.getLikesAndDislikes(video.videoId)
-            video.likes = likes
-            video.dislikes = dislikes
-            binding.tvLikesCount.text = "👍 $likes"
-            binding.tvDislikesCount.text = "👎 $dislikes"
-            binding.tvCommentsCount.text = "💬 1.2K"
+    private fun updateBottomHUDVisibility() {
+        if (!isCleanScreenMode) {
+            // Normal mode: ALWAYS VISIBLE
+            binding.bottomHUD.visibility = View.VISIBLE
+        } else {
+            // Clean screen mode: VISIBLE ONLY WHEN PAUSED
+            val isPlaying = player?.isPlaying ?: false
+            binding.bottomHUD.visibility = if (!isPlaying) View.VISIBLE else View.GONE
         }
+    }
+
+    private fun toggleCleanScreenMode() {
+        isCleanScreenMode = !isCleanScreenMode
+        updateBottomHUDVisibility()
+        val msg = if (isCleanScreenMode) "Full Screen Mode" else "Normal Mode"
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
 
     // ==========================================
-    // SCRUBBING & SEEK BAR OVERLAY
+    // SEEKING & SCRUB BAR OVERLAY
     // ==========================================
 
     private fun seekRelative(offsetMs: Long) {
@@ -287,51 +330,55 @@ class MainActivity : AppCompatActivity() {
         val newPos = (p.currentPosition + offsetMs).coerceIn(0, p.duration.coerceAtLeast(0))
         p.seekTo(newPos)
 
-        // Show hairline scrub bar overlay
         binding.scrubOverlay.visibility = View.VISIBLE
         val sign = if (offsetMs >= 0) "+10s" else "-10s"
         val curM = (newPos / 1000) / 60
         val curS = (newPos / 1000) % 60
         val totM = (p.duration / 1000) / 60
         val totS = (p.duration / 1000) % 60
-        binding.tvScrubTime.text = String.format("%s   %02d:%02d / %02d:%02d", sign, curM, curS, totM, totS)
-        binding.scrubProgressBar.progress = ((newPos.toFloat() / p.duration.coerceAtLeast(1)) * 1000).toInt()
+        binding.tvScrubTime.text =
+            String.format("%s   %02d:%02d / %02d:%02d", sign, curM, curS, totM, totS)
+        binding.scrubProgressBar.progress =
+            ((newPos.toFloat() / p.duration.coerceAtLeast(1)) * 1000).toInt()
 
         scrubHideRunnable?.let { handler.removeCallbacks(it) }
         scrubHideRunnable = Runnable { binding.scrubOverlay.visibility = View.GONE }
         handler.postDelayed(scrubHideRunnable!!, 1500)
     }
 
-    private fun updateScrubBar() {
-        val p = player ?: return
-        if (p.duration > 0) {
-            binding.scrubProgressBar.progress = ((p.currentPosition.toFloat() / p.duration) * 1000).toInt()
-        }
+    // ==========================================
+    // MENU DRAWER & VIDEO SLIDE ANIMATION
+    // ==========================================
+
+    private fun openMenu() {
+        closeAllOverlays()
+        binding.menuDrawer.visibility = View.VISIBLE
+
+        // Smoothly slide and scale video player to the left
+        binding.playerWrapper.animate()
+            .translationX(-130f)
+            .scaleX(0.88f)
+            .scaleY(0.88f)
+            .setDuration(240)
+            .start()
+
+        binding.btnMenuSearch.requestFocus()
     }
 
-    // ==========================================
-    // OVERLAYS (MENU, COMMENTS, SHELF, EXIT)
-    // ==========================================
-
-    private fun toggleMenuDrawer() {
+    private fun closeMenu(): Boolean {
         if (binding.menuDrawer.isVisible) {
             binding.menuDrawer.visibility = View.GONE
-        } else {
-            closeAllOverlays()
-            binding.menuDrawer.visibility = View.VISIBLE
-            binding.btnMenuSearch.requestFocus()
-        }
-    }
 
-    private fun openCommentsDrawer() {
-        val video = getCurrentVideo() ?: return
-        binding.commentsDrawer.visibility = View.VISIBLE
-        binding.tvFullDescription.text = video.description.ifEmpty { video.title }
-
-        lifecycleScope.launch {
-            val comments = YouTubeExtractor.getComments(video.videoId)
-            commentsAdapter.updateComments(comments)
+            // Smoothly return video player back to center full screen
+            binding.playerWrapper.animate()
+                .translationX(0f)
+                .scaleX(1.0f)
+                .scaleY(1.0f)
+                .setDuration(240)
+                .start()
+            return true
         }
+        return false
     }
 
     private fun openSearchShelf() {
@@ -343,10 +390,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun performSearch(query: String) {
         if (query.isBlank()) return
-        binding.topProgressBar.visibility = View.VISIBLE
+        showStatus("Searching YouTube…")
         lifecycleScope.launch {
             val results = YouTubeExtractor.searchVideos(query)
-            binding.topProgressBar.visibility = View.GONE
+            hideStatus()
             shelfAdapter.updateList(results)
         }
     }
@@ -361,28 +408,8 @@ class MainActivity : AppCompatActivity() {
         binding.rvShelf.requestFocus()
     }
 
-    private fun diveIntoChannel(channelId: String) {
-        binding.topProgressBar.visibility = View.VISIBLE
-        lifecycleScope.launch {
-            val channelFeed = YouTubeExtractor.getChannelVideos(channelId)
-            binding.topProgressBar.visibility = View.GONE
-            if (channelFeed.isNotEmpty()) {
-                startNewFeed(channelFeed, 0)
-                Toast.makeText(this@MainActivity, "Playing channel videos", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     private fun closeAllOverlays(): Boolean {
-        var closed = false
-        if (binding.menuDrawer.isVisible) {
-            binding.menuDrawer.visibility = View.GONE
-            closed = true
-        }
-        if (binding.commentsDrawer.isVisible) {
-            binding.commentsDrawer.visibility = View.GONE
-            closed = true
-        }
+        var closed = closeMenu()
         if (binding.shelfOverlay.isVisible) {
             binding.shelfOverlay.visibility = View.GONE
             closed = true
@@ -392,6 +419,19 @@ class MainActivity : AppCompatActivity() {
             closed = true
         }
         return closed
+    }
+
+    private fun showStatus(message: String) {
+        binding.tvStatusMessage.text = message
+        binding.centerStatusPill.alpha = 0f
+        binding.centerStatusPill.visibility = View.VISIBLE
+        binding.centerStatusPill.animate().alpha(1f).setDuration(200).start()
+    }
+
+    private fun hideStatus() {
+        binding.centerStatusPill.animate().alpha(0f).setDuration(200).withEndAction {
+            binding.centerStatusPill.visibility = View.GONE
+        }.start()
     }
 
     private fun restartCurrentVideoWithQuality() {
@@ -415,21 +455,21 @@ class MainActivity : AppCompatActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val keyCode = event.keyCode
 
-        // 1. Long-press OK detection
+        // 1. Long-press OK Detection -> Toggles Clean Screen / Full-Screen Mode
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
             if (event.action == KeyEvent.ACTION_DOWN) {
                 if (!isOkPressed) {
                     isOkPressed = true
                     okLongPressJob = lifecycleScope.launch {
-                        delay(600) // 600ms hold triggers Menu
-                        toggleMenuDrawer()
+                        delay(600) // 600ms hold -> Clean Full-Screen Mode
+                        toggleCleanScreenMode()
                     }
                 }
             } else if (event.action == KeyEvent.ACTION_UP) {
                 isOkPressed = false
                 if (okLongPressJob?.isActive == true) {
                     okLongPressJob?.cancel()
-                    // Regular tap OK -> Play / Pause if no overlay open
+                    // Short tap OK -> Play / Pause
                     if (!isAnyOverlayVisible()) {
                         togglePlayPause()
                     }
@@ -441,9 +481,13 @@ class MainActivity : AppCompatActivity() {
             return true
         }
 
-        // 2. Menu button -> Opens frosted menu
+        // 2. Menu button -> Opens Right-Side Centered Frosted Menu (Video slides left)
         if (keyCode == KeyEvent.KEYCODE_MENU && event.action == KeyEvent.ACTION_DOWN) {
-            toggleMenuDrawer()
+            if (binding.menuDrawer.isVisible) {
+                closeMenu()
+            } else {
+                openMenu()
+            }
             return true
         }
 
@@ -472,9 +516,8 @@ class MainActivity : AppCompatActivity() {
         // 4. Back Key Handling
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (event.action == KeyEvent.ACTION_DOWN) {
-                // Long-press Back -> Refresh feed
                 if (event.isLongPress) {
-                    Toast.makeText(this, "Refreshing Feed…", Toast.LENGTH_SHORT).show()
+                    showStatus("Refreshing Feed…")
                     loadRecommendedFeed()
                     return true
                 }
@@ -507,7 +550,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun isAnyOverlayVisible(): Boolean {
         return binding.menuDrawer.isVisible ||
-                binding.commentsDrawer.isVisible ||
                 binding.shelfOverlay.isVisible ||
                 binding.exitDialog.isVisible
     }
@@ -521,6 +563,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         saveWatchHistory()
+        timeUpdateRunnable?.let { handler.removeCallbacks(it) }
         player?.release()
         player = null
     }

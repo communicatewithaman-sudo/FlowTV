@@ -6,11 +6,13 @@ import android.os.Looper
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -37,6 +39,11 @@ class MainActivity : AppCompatActivity() {
     // Search and History Active Lists
     private val currentSearchFeed = mutableListOf<VideoItem>()
     private val currentHistoryFeed = mutableListOf<VideoItem>()
+
+    // Async Coroutine Jobs
+    private var feedLoadJob: Job? = null
+    private var playbackJob: Job? = null
+    private var searchJob: Job? = null
 
     // Navigation state
     private var isSearchPlaybackMode = false // When true, pressing Back returns to Search shelf
@@ -82,7 +89,7 @@ class MainActivity : AppCompatActivity() {
                         when (playbackState) {
                             Player.STATE_BUFFERING -> {
                                 binding.topProgressBar.visibility = View.VISIBLE
-                                showStatus("Buffering video…")
+                                showStatus("Buffering…")
                             }
                             Player.STATE_READY -> {
                                 binding.topProgressBar.visibility = View.GONE
@@ -90,7 +97,12 @@ class MainActivity : AppCompatActivity() {
                                 updateBottomHUDVisibility()
                                 saveWatchHistory()
                             }
-                            Player.STATE_ENDED -> playNextVideo()
+                            Player.STATE_ENDED -> {
+                                // Do NOT auto-advance if user is browsing Search or History!
+                                if (!binding.shelfOverlay.isVisible) {
+                                    playNextVideo()
+                                }
+                            }
                             Player.STATE_IDLE -> {
                                 binding.topProgressBar.visibility = View.GONE
                                 hideStatus()
@@ -104,8 +116,12 @@ class MainActivity : AppCompatActivity() {
 
                     override fun onPlayerError(error: PlaybackException) {
                         binding.topProgressBar.visibility = View.GONE
-                        showStatus("Retrying next stream…")
-                        handler.postDelayed({ playNextVideo() }, 1800)
+                        if (!binding.shelfOverlay.isVisible) {
+                            showStatus("Stream error, retrying…")
+                            handler.postDelayed({
+                                if (!binding.shelfOverlay.isVisible) playNextVideo()
+                            }, 1800)
+                        }
                     }
                 })
             }
@@ -133,6 +149,21 @@ class MainActivity : AppCompatActivity() {
         binding.rvShelf.layoutManager =
             LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         binding.rvShelf.adapter = shelfAdapter
+
+        // Keyboard Action / Enter Key for Search EditText
+        binding.etSearchInput.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
+                performSearch(binding.etSearchInput.text.toString())
+                true
+            } else {
+                false
+            }
+        }
+
+        // Search Submit Button (side of search box)
+        binding.btnSubmitSearch.setOnClickListener {
+            performSearch(binding.etSearchInput.text.toString())
+        }
 
         // Menu Button: Search
         binding.btnMenuSearch.setOnClickListener {
@@ -164,11 +195,6 @@ class MainActivity : AppCompatActivity() {
         // Menu Button: Exit App
         binding.btnMenuExit.setOnClickListener {
             finish()
-        }
-
-        // Search Submit Button
-        binding.btnSubmitSearch.setOnClickListener {
-            performSearch(binding.etSearchInput.text.toString())
         }
 
         // Exit Dialog buttons
@@ -212,15 +238,23 @@ class MainActivity : AppCompatActivity() {
     // ==========================================
 
     private fun loadRecommendedFeed() {
-        showStatus("Loading trending shorts…")
+        // If shelf is open, do not load or auto-play home feed
+        if (binding.shelfOverlay.isVisible) return
+
+        showStatus("Loading videos…")
         binding.topProgressBar.visibility = View.VISIBLE
-        lifecycleScope.launch {
+
+        feedLoadJob?.cancel()
+        feedLoadJob = lifecycleScope.launch {
             val feed = YouTubeExtractor.getRecommendedFeed()
+            if (binding.shelfOverlay.isVisible) return@launch
             if (feed.isNotEmpty()) {
                 startNewFeed(feed, 0)
             } else {
-                showStatus("Connecting to YouTube…")
-                handler.postDelayed({ loadRecommendedFeed() }, 3000)
+                showStatus("Connecting…")
+                handler.postDelayed({
+                    if (!binding.shelfOverlay.isVisible) loadRecommendedFeed()
+                }, 3000)
             }
         }
     }
@@ -252,18 +286,34 @@ class MainActivity : AppCompatActivity() {
             binding.tvBottomDislikes.text = "👎 $dislikes"
         }
 
-        showStatus("Playing ${if (video.isShort) "Short" else "Video"}…")
+        showStatus("Loading ${if (video.isShort) "Short" else "Video"}…")
         binding.topProgressBar.visibility = View.VISIBLE
 
-        lifecycleScope.launch {
+        playbackJob?.cancel()
+        playbackJob = lifecycleScope.launch {
             val streamUrl = video.streamUrl ?: YouTubeExtractor.resolveStreamUrl(
                 video.videoId,
                 qualityOptions[qualityIndex]
             )
             video.streamUrl = streamUrl
 
+            // If shelf was opened while resolving, abort playback
+            if (binding.shelfOverlay.isVisible) return@launch
+
             if (streamUrl != null) {
-                val mediaItem = MediaItem.fromUri(streamUrl)
+                // ExoPlayer HLS detection: iOS streams return m3u8 manifests
+                val mediaItem = if (streamUrl.contains(".m3u8", ignoreCase = true) ||
+                    streamUrl.contains("manifest/hls_variant", ignoreCase = true) ||
+                    streamUrl.contains("youtubei/v1/player", ignoreCase = true)
+                ) {
+                    MediaItem.Builder()
+                        .setUri(streamUrl)
+                        .setMimeType(MimeTypes.APPLICATION_M3U8)
+                        .build()
+                } else {
+                    MediaItem.fromUri(streamUrl)
+                }
+
                 player?.setMediaItem(mediaItem)
                 if (video.resumePositionMs > 5000) {
                     player?.seekTo(video.resumePositionMs)
@@ -277,12 +327,15 @@ class MainActivity : AppCompatActivity() {
             } else {
                 showStatus("Stream unavailable, skipping…")
                 delay(1200)
-                playNextVideo()
+                if (!binding.shelfOverlay.isVisible) {
+                    playNextVideo()
+                }
             }
         }
     }
 
     private fun playNextVideo() {
+        if (binding.shelfOverlay.isVisible) return
         isCleanScreenMode = false
         if (currentFeedIndex < videoFeed.size - 1) {
             currentFeedIndex++
@@ -293,6 +346,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun playPreviousVideo() {
+        if (binding.shelfOverlay.isVisible) return
         isCleanScreenMode = false
         if (currentFeedIndex > 0) {
             currentFeedIndex--
@@ -377,18 +431,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ==========================================
-    // MENU DRAWER & FLUID VIEW SLIDE ANIMATION
+    // MENU DRAWER & NO-CLIPPING SLIDE + SCALE ANIMATION
     // ==========================================
 
     private fun openMenu() {
         binding.menuDrawer.visibility = View.VISIBLE
 
-        // Smoothly slide and scale whichever view is currently active (Home, Search, or History)
+        // Mathematical scaling and translation so NOTHING clips off-screen:
+        // Main content scales down and shifts left to leave exact space for the 320dp menu
+        val menuWidthPx = 320f * resources.displayMetrics.density
+        val screenWidthPx = resources.displayMetrics.widthPixels.toFloat()
+        val scale = ((screenWidthPx - menuWidthPx) / screenWidthPx).coerceIn(0.6f, 0.95f)
+        val translateX = -(menuWidthPx / 2f)
+
         binding.mainContentWrapper.animate()
-            .translationX(-160f)
-            .scaleX(0.88f)
-            .scaleY(0.88f)
-            .setDuration(240)
+            .translationX(translateX)
+            .scaleX(scale)
+            .scaleY(scale)
+            .setDuration(260)
             .start()
 
         binding.btnMenuSearch.requestFocus()
@@ -421,9 +481,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openSearchShelf() {
+        // Stop any background home feed loading or playback
+        feedLoadJob?.cancel()
+        playbackJob?.cancel()
+        player?.pause()
+
         binding.shelfOverlay.visibility = View.VISIBLE
         binding.searchHeader.visibility = View.VISIBLE
-        binding.tvShelfTitle.text = "Search YouTube"
+        binding.tvShelfTitle.visibility = View.GONE // No "Search YouTube" label below placeholder
+
         shelfAdapter.updateList(currentSearchFeed)
         binding.etSearchInput.requestFocus()
     }
@@ -431,20 +497,31 @@ class MainActivity : AppCompatActivity() {
     private fun performSearch(query: String) {
         if (query.isBlank()) return
         binding.searchLoader.visibility = View.VISIBLE
-        showStatus("Searching YouTube…")
-        lifecycleScope.launch {
+        showStatus("Searching…")
+
+        searchJob?.cancel()
+        searchJob = lifecycleScope.launch {
             val results = YouTubeExtractor.searchVideos(query)
             hideStatus()
             binding.searchLoader.visibility = View.GONE
             currentSearchFeed.clear()
             currentSearchFeed.addAll(results)
             shelfAdapter.updateList(currentSearchFeed)
+            if (results.isNotEmpty()) {
+                binding.rvShelf.requestFocus()
+            }
         }
     }
 
     private fun openHistoryShelf() {
+        // Stop any background home feed loading or playback
+        feedLoadJob?.cancel()
+        playbackJob?.cancel()
+        player?.pause()
+
         binding.shelfOverlay.visibility = View.VISIBLE
         binding.searchHeader.visibility = View.GONE
+        binding.tvShelfTitle.visibility = View.VISIBLE
         binding.tvShelfTitle.text = "Watch History"
 
         val history = dbHelper.getHistory()
@@ -482,6 +559,15 @@ class MainActivity : AppCompatActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val keyCode = event.keyCode
 
+        // Handle Enter/Search from EditText
+        if (binding.etSearchInput.hasFocus() &&
+            (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_DPAD_CENTER) &&
+            event.action == KeyEvent.ACTION_UP
+        ) {
+            performSearch(binding.etSearchInput.text.toString())
+            return true
+        }
+
         // 1. Long-press OK Detection -> Toggles Clean Screen / Full-Screen Mode
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
             if (event.action == KeyEvent.ACTION_DOWN) {
@@ -507,7 +593,7 @@ class MainActivity : AppCompatActivity() {
             return true
         }
 
-        // 2. Menu button -> Opens Right-Side Centered Frosted Menu (Slides whichever view is active to left)
+        // 2. Menu button -> Opens/Closes Right-Side Centered Frosted Menu
         if (keyCode == KeyEvent.KEYCODE_MENU && event.action == KeyEvent.ACTION_DOWN) {
             if (binding.menuDrawer.isVisible) {
                 closeMenu()
@@ -541,7 +627,7 @@ class MainActivity : AppCompatActivity() {
 
         // 4. Back Key Handling
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            // Priority 1: If Menu is open -> Close Menu (remains on Search, History, or whatever was open!)
+            // Priority 1: If Menu is open -> Close Menu (stays on Search, History, or whatever was open!)
             if (binding.menuDrawer.isVisible) {
                 if (event.action == KeyEvent.ACTION_UP) {
                     closeMenu()

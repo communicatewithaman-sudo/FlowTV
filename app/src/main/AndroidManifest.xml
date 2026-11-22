@@ -19,7 +19,7 @@
         android:label="@string/app_name"
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
-        android:theme="@style/Theme.FlowTV"
+        android:theme="@style/Theme.TikTube"
         android:banner="@drawable/ic_launcher"
         android:hardwareAccelerated="true">
 

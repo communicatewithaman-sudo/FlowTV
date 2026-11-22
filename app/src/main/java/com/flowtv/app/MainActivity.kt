@@ -30,9 +30,13 @@ class MainActivity : AppCompatActivity() {
     private var player: ExoPlayer? = null
     private lateinit var dbHelper: HistoryDatabaseHelper
 
-    // Active Playback Feed
+    // Active Playback Feed (Home / Recommendations)
     private val videoFeed = mutableListOf<VideoItem>()
     private var currentFeedIndex = 0
+
+    // Search and History Active Lists
+    private val currentSearchFeed = mutableListOf<VideoItem>()
+    private val currentHistoryFeed = mutableListOf<VideoItem>()
 
     // Display & Clean Full-screen mode state
     private var isCleanScreenMode = false // When true, HUD is hidden unless paused
@@ -94,7 +98,6 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        // In clean screen mode: show HUD only when paused!
                         updateBottomHUDVisibility()
                     }
 
@@ -110,14 +113,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupUI() {
         // Shelf RecyclerView (Search & History)
-        shelfAdapter = ShelfAdapter(emptyList()) { video, _ ->
+        shelfAdapter = ShelfAdapter(emptyList()) { selectedVideo, position ->
+            // FIX: When clicking ANY video from Search or History, start playback with that exact queue!
             closeAllOverlays()
-            val list = if (binding.tvShelfTitle.text.toString().contains("History")) {
-                dbHelper.getHistory()
+            val isHistory = binding.tvShelfTitle.text.toString().contains("History")
+            val targetList = if (isHistory) currentHistoryFeed else currentSearchFeed
+
+            if (targetList.isNotEmpty()) {
+                val index = targetList.indexOfFirst { it.videoId == selectedVideo.videoId }.coerceAtLeast(0)
+                startNewFeed(targetList, index)
             } else {
-                videoFeed
+                startNewFeed(listOf(selectedVideo), 0)
             }
-            startNewFeed(list, list.indexOfFirst { it.videoId == video.videoId }.coerceAtLeast(0))
         }
         binding.rvShelf.layoutManager =
             LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
@@ -191,7 +198,6 @@ class MainActivity : AppCompatActivity() {
         videoFeed.clear()
         videoFeed.addAll(newFeed)
         currentFeedIndex = startIndex.coerceIn(0, (videoFeed.size - 1).coerceAtLeast(0))
-        // Always reset to normal mode when changing/starting feed
         isCleanScreenMode = false
         playCurrentVideo()
     }
@@ -199,17 +205,14 @@ class MainActivity : AppCompatActivity() {
     private fun playCurrentVideo() {
         val video = getCurrentVideo() ?: return
 
-        // 1. Reset to Normal mode for every video (HUD always visible by default)
         isCleanScreenMode = false
         updateBottomHUDVisibility()
 
-        // 2. Populate Bottom HUD metadata
         binding.tvBottomTitle.text = video.title
         binding.tvBottomChannel.text = video.channelTitle
         binding.tvBottomLikes.text = "👍 " + video.likes
         binding.tvBottomDislikes.text = "👎 " + video.dislikes
 
-        // 3. Fetch live ReturnYouTubeDislike stats
         lifecycleScope.launch {
             val (likes, dislikes) = YouTubeExtractor.getLikesAndDislikes(video.videoId)
             video.likes = likes
@@ -218,7 +221,6 @@ class MainActivity : AppCompatActivity() {
             binding.tvBottomDislikes.text = "👎 $dislikes"
         }
 
-        // 4. Resolve stream URL with animated feedback
         showStatus("Playing ${if (video.isShort) "Short" else "Video"}…")
         binding.topProgressBar.visibility = View.VISIBLE
 
@@ -238,7 +240,6 @@ class MainActivity : AppCompatActivity() {
                 player?.prepare()
                 player?.play()
 
-                // Smooth video appearance animation
                 binding.playerView.alpha = 0f
                 binding.playerView.animate().alpha(1f).setDuration(300).start()
             } else {
@@ -250,7 +251,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun playNextVideo() {
-        // As requested: Each video always loads in normal mode (HUD visible)
         isCleanScreenMode = false
         if (currentFeedIndex < videoFeed.size - 1) {
             currentFeedIndex++
@@ -305,10 +305,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateBottomHUDVisibility() {
         if (!isCleanScreenMode) {
-            // Normal mode: ALWAYS VISIBLE
             binding.bottomHUD.visibility = View.VISIBLE
         } else {
-            // Clean screen mode: VISIBLE ONLY WHEN PAUSED
             val isPlaying = player?.isPlaying ?: false
             binding.bottomHUD.visibility = if (!isPlaying) View.VISIBLE else View.GONE
         }
@@ -347,20 +345,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ==========================================
-    // MENU DRAWER & VIDEO SLIDE ANIMATION
+    // MENU DRAWER & VIDEO SHIFT / BLUR BACKGROUND
     // ==========================================
 
     private fun openMenu() {
-        closeAllOverlays()
+        val isAtHomeScreen = isHomeScreen()
         binding.menuDrawer.visibility = View.VISIBLE
 
-        // Smoothly slide and scale video player to the left
-        binding.playerWrapper.animate()
-            .translationX(-130f)
-            .scaleX(0.88f)
-            .scaleY(0.88f)
-            .setDuration(240)
-            .start()
+        if (isAtHomeScreen) {
+            // Home Screen: Shift video player smoothly to the left
+            binding.playerWrapper.animate()
+                .translationX(-130f)
+                .scaleX(0.88f)
+                .scaleY(0.88f)
+                .setDuration(240)
+                .start()
+            binding.blurOverlay.visibility = View.GONE
+        } else {
+            // Except Home Screen (e.g. Search / History): Apply frosted dark blur background
+            binding.blurOverlay.visibility = View.VISIBLE
+            binding.blurOverlay.alpha = 0f
+            binding.blurOverlay.animate().alpha(1f).setDuration(200).start()
+        }
 
         binding.btnMenuSearch.requestFocus()
     }
@@ -368,8 +374,8 @@ class MainActivity : AppCompatActivity() {
     private fun closeMenu(): Boolean {
         if (binding.menuDrawer.isVisible) {
             binding.menuDrawer.visibility = View.GONE
+            binding.blurOverlay.visibility = View.GONE
 
-            // Smoothly return video player back to center full screen
             binding.playerWrapper.animate()
                 .translationX(0f)
                 .scaleX(1.0f)
@@ -385,6 +391,7 @@ class MainActivity : AppCompatActivity() {
         binding.shelfOverlay.visibility = View.VISIBLE
         binding.searchHeader.visibility = View.VISIBLE
         binding.tvShelfTitle.text = "Search YouTube"
+        shelfAdapter.updateList(currentSearchFeed)
         binding.etSearchInput.requestFocus()
     }
 
@@ -394,7 +401,9 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val results = YouTubeExtractor.searchVideos(query)
             hideStatus()
-            shelfAdapter.updateList(results)
+            currentSearchFeed.clear()
+            currentSearchFeed.addAll(results)
+            shelfAdapter.updateList(currentSearchFeed)
         }
     }
 
@@ -404,7 +413,9 @@ class MainActivity : AppCompatActivity() {
         binding.tvShelfTitle.text = "Watch History"
 
         val history = dbHelper.getHistory()
-        shelfAdapter.updateList(history)
+        currentHistoryFeed.clear()
+        currentHistoryFeed.addAll(history)
+        shelfAdapter.updateList(currentHistoryFeed)
         binding.rvShelf.requestFocus()
     }
 
@@ -419,6 +430,15 @@ class MainActivity : AppCompatActivity() {
             closed = true
         }
         return closed
+    }
+
+    /**
+     * Home screen is defined as pure full-screen video playback with NO overlay open.
+     */
+    private fun isHomeScreen(): Boolean {
+        return !binding.menuDrawer.isVisible &&
+                !binding.shelfOverlay.isVisible &&
+                !binding.exitDialog.isVisible
     }
 
     private fun showStatus(message: String) {
@@ -461,7 +481,7 @@ class MainActivity : AppCompatActivity() {
                 if (!isOkPressed) {
                     isOkPressed = true
                     okLongPressJob = lifecycleScope.launch {
-                        delay(600) // 600ms hold -> Clean Full-Screen Mode
+                        delay(600)
                         toggleCleanScreenMode()
                     }
                 }
@@ -469,19 +489,18 @@ class MainActivity : AppCompatActivity() {
                 isOkPressed = false
                 if (okLongPressJob?.isActive == true) {
                     okLongPressJob?.cancel()
-                    // Short tap OK -> Play / Pause
-                    if (!isAnyOverlayVisible()) {
+                    if (isHomeScreen()) {
                         togglePlayPause()
                     }
                 }
             }
-            if (isAnyOverlayVisible()) {
+            if (!isHomeScreen()) {
                 return super.dispatchKeyEvent(event)
             }
             return true
         }
 
-        // 2. Menu button -> Opens Right-Side Centered Frosted Menu (Video slides left)
+        // 2. Menu button -> Opens Right-Side Centered Frosted Menu
         if (keyCode == KeyEvent.KEYCODE_MENU && event.action == KeyEvent.ACTION_DOWN) {
             if (binding.menuDrawer.isVisible) {
                 closeMenu()
@@ -491,8 +510,8 @@ class MainActivity : AppCompatActivity() {
             return true
         }
 
-        // 3. In-Video Remote Navigation (when no overlays are showing)
-        if (!isAnyOverlayVisible() && event.action == KeyEvent.ACTION_DOWN) {
+        // 3. In-Video Remote Navigation (strictly when in home screen watching video)
+        if (isHomeScreen() && event.action == KeyEvent.ACTION_DOWN) {
             when (keyCode) {
                 KeyEvent.KEYCODE_DPAD_DOWN -> {
                     playNextVideo()
@@ -515,19 +534,25 @@ class MainActivity : AppCompatActivity() {
 
         // 4. Back Key Handling
         if (keyCode == KeyEvent.KEYCODE_BACK) {
+            // A. If NOT in Home Screen (e.g. Menu, Search, History are open):
+            // Back simply closes that overlay and returns to Home. Never exits, never refreshes!
+            if (!isHomeScreen()) {
+                if (event.action == KeyEvent.ACTION_UP) {
+                    closeAllOverlays()
+                }
+                return true
+            }
+
+            // B. ONLY when in Home Screen:
             if (event.action == KeyEvent.ACTION_DOWN) {
+                // Hold Back ONLY on Home Screen -> Refreshes feed
                 if (event.isLongPress) {
                     showStatus("Refreshing Feed…")
                     loadRecommendedFeed()
                     return true
                 }
             } else if (event.action == KeyEvent.ACTION_UP) {
-                // Close any open overlays first
-                if (closeAllOverlays()) {
-                    return true
-                }
-
-                // If in full-screen video: Double-tap Back shows Frosted Exit Dialog
+                // Double tap Back ONLY on Home Screen -> Opens Exit Dialog
                 val currentTime = System.currentTimeMillis()
                 if (currentTime - lastBackPressTime < 1800) {
                     binding.exitDialog.visibility = View.VISIBLE
@@ -546,12 +571,6 @@ class MainActivity : AppCompatActivity() {
     private fun togglePlayPause() {
         val p = player ?: return
         if (p.isPlaying) p.pause() else p.play()
-    }
-
-    private fun isAnyOverlayVisible(): Boolean {
-        return binding.menuDrawer.isVisible ||
-                binding.shelfOverlay.isVisible ||
-                binding.exitDialog.isVisible
     }
 
     override fun onPause() {

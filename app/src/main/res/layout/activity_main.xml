@@ -7,7 +7,7 @@
     android:layout_height="match_parent"
     android:background="@color/black">
 
-    <!-- 1. VIDEO PLAYER WRAPPER (Slides to left when Menu opens) -->
+    <!-- 1. VIDEO PLAYER WRAPPER (Slides to left when Menu opens on Home Screen) -->
     <FrameLayout
         android:id="@+id/playerWrapper"
         android:layout_width="match_parent"
@@ -195,7 +195,84 @@
             android:progressDrawable="@drawable/seek_progress_drawable" />
     </LinearLayout>
 
-    <!-- 6. RIGHT-SIDE VERTICALLY CENTERED FROSTED MENU (Press Menu Button) -->
+    <!-- 6. SEARCH / HISTORY SHELF OVERLAY -->
+    <LinearLayout
+        android:id="@+id/shelfOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#EB000000"
+        android:orientation="vertical"
+        android:padding="36dp"
+        android:visibility="gone"
+        tools:visibility="gone">
+
+        <!-- Search Bar Header -->
+        <LinearLayout
+            android:id="@+id/searchHeader"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="24dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/etSearchInput"
+                android:layout_width="400dp"
+                android:layout_height="48dp"
+                android:background="@drawable/bg_pill_button"
+                android:hint="@string/search_hint"
+                android:imeOptions="actionSearch"
+                android:inputType="text"
+                android:maxLines="1"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_muted"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/btnSubmitSearch"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_marginStart="16dp"
+                android:background="@drawable/bg_pill_button"
+                android:focusable="true"
+                android:gravity="center"
+                android:paddingStart="24dp"
+                android:paddingEnd="24dp"
+                android:text="Search"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- Shelf Title -->
+        <TextView
+            android:id="@+id/tvShelfTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:textColor="@color/text_primary"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            tools:text="Watch History" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvShelf"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false" />
+    </LinearLayout>
+
+    <!-- 7. FROSTED BLUR OVERLAY (Active when opening Menu on non-home screens) -->
+    <View
+        android:id="@+id/blurOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#B3050508"
+        android:visibility="gone" />
+
+    <!-- 8. RIGHT-SIDE VERTICALLY CENTERED FROSTED MENU (Press Menu Button) -->
     <LinearLayout
         android:id="@+id/menuDrawer"
         android:layout_width="320dp"
@@ -286,76 +363,7 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- 7. SEARCH / HISTORY SHELF OVERLAY -->
-    <LinearLayout
-        android:id="@+id/shelfOverlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="#EB000000"
-        android:orientation="vertical"
-        android:padding="36dp"
-        android:visibility="gone"
-        tools:visibility="gone">
-
-        <!-- Search Bar Header -->
-        <LinearLayout
-            android:id="@+id/searchHeader"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <EditText
-                android:id="@+id/etSearchInput"
-                android:layout_width="400dp"
-                android:layout_height="48dp"
-                android:background="@drawable/bg_pill_button"
-                android:hint="@string/search_hint"
-                android:imeOptions="actionSearch"
-                android:inputType="text"
-                android:maxLines="1"
-                android:paddingStart="20dp"
-                android:paddingEnd="20dp"
-                android:textColor="@color/text_primary"
-                android:textColorHint="@color/text_muted"
-                android:textSize="15sp" />
-
-            <TextView
-                android:id="@+id/btnSubmitSearch"
-                android:layout_width="wrap_content"
-                android:layout_height="48dp"
-                android:layout_marginStart="16dp"
-                android:background="@drawable/bg_pill_button"
-                android:focusable="true"
-                android:gravity="center"
-                android:paddingStart="24dp"
-                android:paddingEnd="24dp"
-                android:text="Search"
-                android:textColor="@color/text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-
-        <!-- Shelf Title -->
-        <TextView
-            android:id="@+id/tvShelfTitle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:textColor="@color/text_primary"
-            android:textSize="22sp"
-            android:textStyle="bold"
-            tools:text="Watch History" />
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rvShelf"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:clipToPadding="false" />
-    </LinearLayout>
-
-    <!-- 8. FROSTED EXIT DIALOG (Double-tap Back) -->
+    <!-- 9. FROSTED EXIT DIALOG (Double-tap Back on Home Screen) -->
     <LinearLayout
         android:id="@+id/exitDialog"
         android:layout_width="380dp"
